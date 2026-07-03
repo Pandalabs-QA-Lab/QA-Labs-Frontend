@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useCallback } from 'react'
 import { UploadIcon, DownloadIcon, PencilIcon, CopyIcon, XIcon, ChevronLeftIcon, ChevronRightIcon, SortAscIcon, SortDescIcon, SortNoneIcon, ArrowRightIcon } from '../components/Icons'
 import { useSortable } from '../hooks/useSortable'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
@@ -16,6 +16,7 @@ import { useProjects } from '../hooks/useProjects'
 import { useUser } from '../context/UserContext'
 import { useSharedSteps } from '../hooks/useSharedSteps'
 import { useUserRole } from '../hooks/useUserRole'
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { describeTestCaseChanges, historyEntry, withHistory } from '../utils/history'
 import { STATUS_TONE, TEST_STATUSES, normalizeTestStatus } from '../utils/status'
 import { exportTestCases } from '../utils/export'
@@ -39,10 +40,11 @@ const BUG_STATUSES = ['Open', 'In review', 'Closed']
 
 const getTestCaseDisplayId = (tc) => tc.sourceTcId || tc.id.slice(0, 8).toUpperCase()
 
-const blankForm = () => ({
-  title: '', module: '', scenario: '', preconditions: '', priority: 'Med',
+const blankForm = (overrides = {}) => ({
+  title: '', folder: '', module: '', scenario: '', preconditions: '', priority: 'Med',
   assignee: '', steps: [''], testData: '', expected: '', actual: '',
   status: 'Not Executed', devRemarks: '', qaRemarks: '', tags: [],
+  ...overrides,
 })
 
 export function TestCasesPage() {
@@ -66,7 +68,12 @@ export function TestCasesPage() {
   const [fPriority, setFPriority] = useState(() => searchParams.get('priority') || '')
   const [fStatus, setFStatus] = useState(() => searchParams.get('status') || '')
   const [fModule, setFModule] = useState(() => searchParams.get('module') || '')
-  const [fAssignee, setFAssignee] = useState(() => searchParams.get('assignee') || '')
+  const [fFolder, setFFolder] = useState(() => searchParams.get('folder') || '')
+  const [bulkMoveFolder, setBulkMoveFolder] = useState('')
+  const [showFolderModal, setShowFolderModal] = useState(false)
+  const [folderModalName, setFolderModalName] = useState('')
+  const [folderModalModules, setFolderModalModules] = useState(new Set())
+  const [folderModalEditTarget, setFolderModalEditTarget] = useState(null) // null = create, string = folder being edited
   const [fTag, setFTag] = useState(() => searchParams.get('tag') || '')
   const [pageSize, setPageSize] = useState(10)
   const [page, setPage] = useState(1)
@@ -82,6 +89,26 @@ export function TestCasesPage() {
   const [editSharedGroup, setEditSharedGroup] = useState(null)
   const [sharedForm, setSharedForm] = useState({ name: '', description: '', steps: [''] })
   const [sharedSearch, setSharedSearch] = useState('')
+
+  const openAddModal = useCallback(() => {
+    setEditTc(null)
+    setForm(blankForm({ folder: fFolder, module: fModule }))
+    setShowAdd(true)
+  }, [fFolder, fModule])
+
+  const handleEscape = useCallback(() => {
+    if (showAdd) {
+      setShowAdd(false)
+      setEditTc(null)
+      setForm(blankForm())
+    }
+  }, [showAdd])
+
+  useKeyboardShortcuts({
+    openAdd: openAddModal,
+    onSave: null,
+    onEscape: handleEscape,
+  })
 
   const handleSaveSharedGroup = async (e) => {
     e.preventDefault()
@@ -206,8 +233,8 @@ export function TestCasesPage() {
   }
 
   const setBug = (k) => (e) => setBugForm((f) => ({ ...f, [k]: e.target.value }))
-  const clearFilters = () => { setSearch(''); setFPriority(''); setFStatus(''); setFModule(''); setFAssignee(''); setFTag(''); setPage(1) }
-  const activeFilterCount = [search, fPriority, fStatus, fModule, fAssignee, fTag].filter(Boolean).length
+  const clearFilters = () => { setSearch(''); setFPriority(''); setFStatus(''); setFModule(''); setFTag(''); setFFolder(''); setPage(1) }
+  const activeFilterCount = [search, fPriority, fStatus, fModule, fTag, fFolder].filter(Boolean).length
   const filterByTag = (tag) => { setFTag((cur) => (cur === tag ? '' : tag)); setPage(1) }
 
   const handleAdd = (e) => {
@@ -236,7 +263,7 @@ export function TestCasesPage() {
   const openEdit = (tc) => {
     setEditTc(tc)
     setForm({
-      title: tc.title || '', module: tc.module || '', scenario: tc.scenario || '',
+      title: tc.title || '', folder: tc.folder || '', module: tc.module || '', scenario: tc.scenario || '',
       preconditions: tc.preconditions || '', priority: tc.priority || 'Med',
       assignee: tc.assignee || '', steps: tc.steps?.length ? [...tc.steps] : [''],
       testData: tc.testData || '', expected: tc.expected || '', actual: tc.actual || '',
@@ -271,9 +298,15 @@ export function TestCasesPage() {
 
   const handleBulkDelete = async () => {
     if (selectedIds.length === 0) return
+    const selectedCases = testCases.filter((tc) => selectedIds.includes(tc.id))
+    const sampleTitles = selectedCases.slice(0, 3).map((tc) => tc.title)
     const ok = await confirm({
       title: 'Delete selected test cases?',
-      message: `Are you sure you want to permanently remove the ${selectedIds.length} selected test cases? This action cannot be undone.`,
+      message: `Permanently remove ${selectedIds.length} test case${selectedIds.length !== 1 ? 's' : ''}? This action cannot be undone.`,
+      details: [
+        ...sampleTitles,
+        selectedIds.length > 3 ? `...and ${selectedIds.length - 3} more` : null,
+      ].filter(Boolean),
       confirmLabel: 'Delete',
       danger: true,
     })
@@ -315,17 +348,121 @@ export function TestCasesPage() {
     addTestCase(clone)
   }
 
-  // Derive unique module values for filter dropdown
-  const modules = [...new Set(testCases.map((t) => t.module).filter(Boolean))]
-  const assignees = [...new Set(testCases.map((t) => t.assignee).filter(Boolean))]
+  const allModulesList = useMemo(() => {
+    const map = {}
+    testCases.forEach((tc) => {
+      const m = tc.module || ''
+      if (!map[m]) map[m] = { name: m, count: 0 }
+      map[m].count++
+    })
+    return Object.values(map).sort((a, b) => a.name.localeCompare(b.name))
+  }, [testCases])
+
+  // For each module, which folder owns it (if any)?
+  const moduleToFolder = useMemo(() => {
+    const map = {}
+    testCases.forEach((tc) => {
+      const m = tc.module || ''
+      const f = tc.folder || ''
+      if (!f) return
+      if (!map[m]) map[m] = f
+      else if (map[m] !== f) map[m] = '__mixed__'
+    })
+    return map
+  }, [testCases])
+
+  const openEditFolder = (folder) => {
+    const modulesInFolder = new Set(
+      testCases.filter((tc) => (tc.folder || '') === folder.name).map((tc) => tc.module || '')
+    )
+    setFolderModalEditTarget(folder.name)
+    setFolderModalName(folder.name)
+    setFolderModalModules(modulesInFolder)
+    setShowFolderModal(true)
+  }
+
+  const handleSaveFolder = () => {
+    const name = folderModalName.trim()
+    if (!name || folderModalModules.size === 0) return
+
+    if (folderModalEditTarget) {
+      testCases.forEach((tc) => {
+        const m = tc.module || ''
+        const wasInFolder = (tc.folder || '') === folderModalEditTarget
+        const isInNewSet = folderModalModules.has(m)
+
+        if (wasInFolder && !isInNewSet) {
+          updateTestCase({ ...tc, folder: '', updatedAt: new Date().toISOString() })
+        } else if (isInNewSet && !wasInFolder) {
+          updateTestCase({ ...tc, folder: name, updatedAt: new Date().toISOString() })
+        } else if (wasInFolder && name !== folderModalEditTarget) {
+          updateTestCase({ ...tc, folder: name, updatedAt: new Date().toISOString() })
+        }
+      })
+      toast.success(`Folder "${name}" updated`)
+    } else {
+      testCases.forEach((tc) => {
+        if (folderModalModules.has(tc.module || '')) {
+          updateTestCase({ ...tc, folder: name, updatedAt: new Date().toISOString() })
+        }
+      })
+      toast.success(`Folder "${name}" created`)
+    }
+
+    setShowFolderModal(false)
+    setFolderModalName('')
+    setFolderModalModules(new Set())
+    setFolderModalEditTarget(null)
+    setFFolder(name)
+  }
+
+  const handleBulkMoveToFolder = () => {
+    if (!bulkMoveFolder.trim() || selectedIds.length === 0) return
+    const name = bulkMoveFolder.trim()
+    testCases
+      .filter((tc) => selectedIds.includes(tc.id))
+      .forEach((tc) => updateTestCase({ ...tc, folder: name, updatedAt: new Date().toISOString() }))
+    toast.success(`Moved ${selectedIds.length} case(s) to "${name}"`)
+    setSelectedIds([])
+    setBulkMoveFolder('')
+  }
+
+  // Folder tree: built from test cases that have a folder field
+  const hasAnyFolder = useMemo(() => testCases.some((tc) => tc.folder), [testCases])
+  const folderTree = useMemo(() => {
+    if (!hasAnyFolder) return []
+    const map = {}
+    testCases.forEach((tc) => {
+      const f = tc.folder || ''
+      if (!f) return
+      if (!map[f]) map[f] = { name: f, count: 0, modules: {} }
+      map[f].count++
+      const m = tc.module || ''
+      if (!map[f].modules[m]) map[f].modules[m] = { name: m, count: 0 }
+      map[f].modules[m].count++
+    })
+    return Object.values(map)
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((f) => ({ ...f, modules: Object.values(f.modules).sort((a, b) => a.name.localeCompare(b.name)) }))
+  }, [testCases, hasAnyFolder])
+
+  // Module list scoped to the active folder when one is selected
+  const modules = useMemo(() => [
+    ...new Set(
+      (fFolder ? testCases.filter((tc) => (tc.folder || '') === fFolder) : testCases)
+        .map((t) => t.module).filter(Boolean)
+    )
+  ], [testCases, fFolder])
+  // Unscoped module list — used for the log-bug modal's module suggestions
+  const allModuleNames = useMemo(() => [...new Set(testCases.map((t) => t.module).filter(Boolean))].sort(), [testCases])
   const allTags = [...new Set(testCases.flatMap((t) => t.tags || []))].sort((a, b) => a.localeCompare(b))
 
   const visible = sortedCases.filter((tc) => {
+    if (fFolder && (tc.folder || '') !== fFolder) return false
     if (search && !tc.title.toLowerCase().includes(search.toLowerCase())) return false
     if (fPriority && tc.priority !== fPriority) return false
     if (fStatus && tc.status !== fStatus) return false
     if (fModule && tc.module !== fModule) return false
-    if (fAssignee && tc.assignee !== fAssignee) return false
     if (fTag && !(tc.tags || []).includes(fTag)) return false
     return true
   })
@@ -340,6 +477,7 @@ export function TestCasesPage() {
   return (
     <>
       <PageHeader
+        backTo={`/projects`}
         title="Test cases"
         description="Filter, review, and prepare cases for the next test run."
         action={
@@ -394,7 +532,74 @@ export function TestCasesPage() {
       </div>
 
       {activeTab === 'cases' ? (
-        <section className="panel">
+        <div className={hasAnyFolder ? 'tc-page-layout' : ''}>
+
+        {/* Folder tree sidebar — only shown when test cases have folder values */}
+        {hasAnyFolder && (
+          <aside className="tc-folder-sidebar">
+            <div className="tc-folder-sidebar-header">
+              <span className="tc-folder-sidebar-title">Folders</span>
+              {isLead && (
+                <button
+                  className="tc-folder-add-btn"
+                  type="button"
+                  title="Create folder from modules"
+                  onClick={() => { setFolderModalEditTarget(null); setFolderModalName(''); setFolderModalModules(new Set()); setShowFolderModal(true) }}
+                >
+                  +
+                </button>
+              )}
+            </div>
+            <ul className="tc-folder-tree">
+              <li
+                className={`tc-folder-all${!fFolder ? ' tc-folder-all--active' : ''}`}
+                onClick={() => { setFFolder(''); setFModule(''); setPage(1) }}
+              >
+                <span>All test cases</span>
+                <span className="tc-folder-count">{testCases.length}</span>
+              </li>
+              {folderTree.map((folder) => (
+                <li key={folder.name} className="tc-folder-group">
+                  <div
+                    className={`tc-folder-header${fFolder === folder.name ? ' tc-folder-header--active' : ''}`}
+                    onClick={() => { setFFolder((f) => f === folder.name ? '' : folder.name); setFModule(''); setPage(1) }}
+                  >
+                    <span className="tc-folder-icon">📁</span>
+                    <span className="tc-folder-name">{folder.name}</span>
+                    <span className="tc-folder-count">{folder.count}</span>
+                    {isLead && (
+                      <button
+                        className="tc-folder-edit-btn"
+                        type="button"
+                        title="Edit folder"
+                        onClick={(e) => { e.stopPropagation(); openEditFolder(folder) }}
+                      >
+                        <PencilIcon width={11} height={11} />
+                      </button>
+                    )}
+                  </div>
+                  {fFolder === folder.name && (
+                    <ul className="tc-module-list">
+                      {folder.modules.map((mod) => (
+                        <li
+                          key={mod.name || '__nomod__'}
+                          className={`tc-module-item${fModule === mod.name ? ' tc-module-item--active' : ''}`}
+                          onClick={(e) => { e.stopPropagation(); setFModule((m) => m === mod.name ? '' : mod.name); setPage(1) }}
+                        >
+                          <span className="tc-module-icon">📂</span>
+                          <span className="tc-module-name">{mod.name || '(no module)'}</span>
+                          <span className="tc-folder-count">{mod.count}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </aside>
+        )}
+
+        <section className="panel tc-main-panel">
           <div className="toolbar">
             <input
               type="search"
@@ -415,12 +620,6 @@ export function TestCasesPage() {
               <option value="">Status</option>
               {TEST_STATUSES.map((s) => <option key={s}>{s}</option>)}
             </select>
-            {assignees.length > 0 && (
-              <select aria-label="Assignee filter" value={fAssignee} onChange={updateListControl(setFAssignee)} className={fAssignee ? 'filter-active' : ''}>
-                <option value="">Assignee</option>
-                {assignees.map((a) => <option key={a}>{a}</option>)}
-              </select>
-            )}
             {allTags.length > 0 && (
               <select aria-label="Tag filter" value={fTag} onChange={updateListControl(setFTag)} className={fTag ? 'filter-active' : ''}>
                 <option value="">Tag</option>
@@ -460,6 +659,26 @@ export function TestCasesPage() {
                   >
                     Delete selected
                   </button>
+                  <span className="bulk-divider" />
+                  <input
+                    type="text"
+                    value={bulkMoveFolder}
+                    onChange={(e) => setBulkMoveFolder(e.target.value)}
+                    placeholder="Folder name…"
+                    list="bulk-folder-datalist"
+                    className="bulk-folder-input"
+                  />
+                  <datalist id="bulk-folder-datalist">
+                    {folderTree.map((f) => <option key={f.name} value={f.name} />)}
+                  </datalist>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={handleBulkMoveToFolder}
+                    disabled={!bulkMoveFolder.trim()}
+                  >
+                    Move to folder
+                  </button>
                 </div>
               ) : (
                 <span className="text-muted" style={{ fontSize: 11, fontStyle: 'italic' }}>Actions restricted (read-only)</span>
@@ -479,7 +698,6 @@ export function TestCasesPage() {
                   <col className="tc-col-title" />
                   <col className="tc-col-module" />
                   <col className="tc-col-priority" />
-                  <col className="tc-col-assignee" />
                   <col className="tc-col-status" />
                   <col className="tc-col-actions" />
                 </colgroup>
@@ -504,9 +722,6 @@ export function TestCasesPage() {
                     </th>
                     <th>
                       <SortTh col="priority" label="Priority" active={tcSortKey} dir={tcSortDir} onSort={tcToggle} />
-                    </th>
-                    <th>
-                      <SortTh col="assignee" label="Assignee" active={tcSortKey} dir={tcSortDir} onSort={tcToggle} />
                     </th>
                     <th>
                       <SortTh col="status" label="Status" active={tcSortKey} dir={tcSortDir} onSort={tcToggle} />
@@ -535,7 +750,7 @@ export function TestCasesPage() {
                       <td>{tc.module || '—'}</td>
                       <td>
                         <select
-                          className={`inline-select priority-${(tc.priority || 'Med').toLowerCase()}`}
+                          className={`inline-select status-select priority-${(tc.priority || 'Med').toLowerCase()}`}
                           value={tc.priority || 'Med'}
                           aria-label="Priority"
                           disabled={!isLead}
@@ -547,7 +762,6 @@ export function TestCasesPage() {
                           {PRIORITIES.map((p) => <option key={p}>{p}</option>)}
                         </select>
                       </td>
-                      <td>{tc.assignee || '—'}</td>
                       <td>
                         <select
                           className={`inline-select status-select status-select--${STATUS_TONE[tc.status] ?? 'neutral'}`}
@@ -627,10 +841,6 @@ export function TestCasesPage() {
                       <span>Module:</span>
                       <strong>{tc.module || '—'}</strong>
                     </div>
-                    <div>
-                      <span>Assignee:</span>
-                      <strong>{tc.assignee || '—'}</strong>
-                    </div>
                   </div>
                   <div className="mobile-card-actions">
                     <Link className="secondary-button mobile-card-action-btn" to={`/projects/${projectId}/test-cases/${tc.id}`}>
@@ -702,6 +912,7 @@ export function TestCasesPage() {
             </div>
           )}
         </section>
+        </div>
       ) : (
         <section className="panel">
           <div className="toolbar">
@@ -852,6 +1063,15 @@ export function TestCasesPage() {
               Test Case Title <span className="required">*</span>
               <input autoFocus value={form.title} onChange={set('title')} placeholder="What is being tested?" />
             </label>
+            {hasAnyFolder && (
+              <label>
+                Folder
+                <input value={form.folder} onChange={set('folder')} placeholder="Suite / sheet name…" list="folder-suggestions" />
+                <datalist id="folder-suggestions">
+                  {folderTree.map((f) => <option key={f.name} value={f.name} />)}
+                </datalist>
+              </label>
+            )}
             <div className="form-row">
               <label>
                 Module
@@ -932,6 +1152,84 @@ export function TestCasesPage() {
         </Modal>
       )}
 
+      {showFolderModal && (
+        <Modal
+          title={folderModalEditTarget ? `Edit folder: ${folderModalEditTarget}` : 'Create folder'}
+          onClose={() => { setShowFolderModal(false); setFolderModalEditTarget(null) }}
+        >
+          <div className="modal-form">
+            <label>
+              Folder name <span className="required">*</span>
+              <input
+                autoFocus
+                value={folderModalName}
+                onChange={(e) => setFolderModalName(e.target.value)}
+                placeholder="e.g. LoginSuite, Regression…"
+              />
+            </label>
+            <div className="folder-modal-modules-label">
+              <span>Modules in this folder</span>
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => {
+                  const available = allModulesList
+                    .filter((m) => !moduleToFolder[m.name] || moduleToFolder[m.name] === folderModalEditTarget)
+                    .map((m) => m.name)
+                  const allAvailableSelected = available.every((n) => folderModalModules.has(n))
+                  setFolderModalModules(allAvailableSelected ? new Set() : new Set(available))
+                }}
+              >
+                {(() => {
+                  const available = allModulesList.filter((m) => !moduleToFolder[m.name] || moduleToFolder[m.name] === folderModalEditTarget)
+                  return available.every((m) => folderModalModules.has(m.name)) ? 'Deselect all' : 'Select all'
+                })()}
+              </button>
+            </div>
+            <div className="folder-modal-module-list">
+              {allModulesList.map((mod) => {
+                const ownerFolder = moduleToFolder[mod.name] || ''
+                const isOwnedByOther = ownerFolder && ownerFolder !== folderModalEditTarget && ownerFolder !== '__mixed__'
+                const isMixed = ownerFolder === '__mixed__'
+                const isDisabled = isOwnedByOther || isMixed
+                return (
+                  <label
+                    key={mod.name || '__nomod__'}
+                    className={`folder-modal-module-item${isDisabled ? ' folder-modal-module-item--disabled' : ''}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={folderModalModules.has(mod.name)}
+                      disabled={isDisabled}
+                      onChange={() => !isDisabled && setFolderModalModules((prev) => {
+                        const next = new Set(prev)
+                        next.has(mod.name) ? next.delete(mod.name) : next.add(mod.name)
+                        return next
+                      })}
+                    />
+                    <span className="folder-modal-module-name">{mod.name || '(no module)'}</span>
+                    {isOwnedByOther && <span className="folder-modal-module-tag">in {ownerFolder}</span>}
+                    {isMixed && <span className="folder-modal-module-tag">mixed</span>}
+                    <span className="tc-folder-count">{mod.count}</span>
+                  </label>
+                )
+              })}
+            </div>
+            <div className="modal-footer" style={{ marginTop: 16 }}>
+              <button type="button" className="secondary-button" onClick={() => { setShowFolderModal(false); setFolderModalEditTarget(null) }}>Cancel</button>
+              <button
+                type="button"
+                className="primary-button"
+                disabled={!folderModalName.trim() || folderModalModules.size === 0}
+                onClick={handleSaveFolder}
+              >
+                {folderModalEditTarget ? 'Save changes' : 'Create folder'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {showBugModal && bugForm && (
         <Modal title="Log bug from failed test case" onClose={handleBugCancel}>
           <form className="modal-form" onSubmit={handleBugSubmit}>
@@ -959,7 +1257,10 @@ export function TestCasesPage() {
             </div>
             <label>
               Module
-              <input value={bugForm.module} onChange={setBug('module')} placeholder="e.g. Auth, Checkout" />
+              <input value={bugForm.module} onChange={setBug('module')} placeholder="e.g. Auth, Checkout" list="tc-bug-module-suggestions" />
+              <datalist id="tc-bug-module-suggestions">
+                {allModuleNames.map((m) => <option key={m} value={m} />)}
+              </datalist>
             </label>
             <label>
               Linked test case

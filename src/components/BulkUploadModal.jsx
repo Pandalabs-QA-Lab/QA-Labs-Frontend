@@ -103,12 +103,9 @@ function parseGoogleSheetUrl(url) {
   return { sheetId, gid }
 }
 
-function toCsvExportUrl(sheetId, gid) {
-  return `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`
-}
-
-function textToBuffer(text) {
-  return new TextEncoder().encode(text).buffer
+function toXlsxExportUrl(sheetId) {
+  // XLSX export fetches ALL sheets so multi-sheet → folder detection works
+  return `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=xlsx`
 }
 
 // ── Stepper indicator ──────────────────────────────────────────────────────
@@ -196,7 +193,7 @@ function GoogleSheetImport({ onCsvParsed }) {
     setLoading(true)
 
     try {
-      const exportUrl = toCsvExportUrl(parsed.sheetId, parsed.gid)
+      const exportUrl = toXlsxExportUrl(parsed.sheetId)
       const res = await fetch(exportUrl)
 
       if (!res.ok) {
@@ -209,16 +206,16 @@ function GoogleSheetImport({ onCsvParsed }) {
         return
       }
 
-      const csvText = await res.text()
+      const buffer = await res.arrayBuffer()
 
-      if (!csvText || csvText.trim().length === 0) {
-        setError('The sheet appears to be empty. Please check the content and try again.')
+      if (!buffer || buffer.byteLength === 0) {
+        setError('The spreadsheet appears to be empty. Please check the content and try again.')
         setLoading(false)
         return
       }
 
-      const buffer = textToBuffer(csvText)
-      onCsvParsed(buffer, 'google-sheet.csv')
+      // Pass as .xlsx so the parser detects all sheets and maps each to a folder
+      onCsvParsed(buffer, 'google-sheet.xlsx')
     } catch {
       setError(
         'Could not fetch the sheet. This sheet must be public or published to the web. ' +
@@ -264,7 +261,7 @@ function GoogleSheetImport({ onCsvParsed }) {
       <div className="bulk-template-row">
         <p className="bulk-template-hint">
           Paste a link to a <em>public</em> Google Sheet. The sheet must be set to
-          "Anyone with the link" or published to the web.
+          "Anyone with the link" or published to the web. Multiple sheets will each become a folder.
         </p>
         <button className="secondary-button" type="button" onClick={downloadTemplate}>
           <DownloadIcon width={14} height={14} /> Download template
@@ -300,11 +297,13 @@ const IMPORT_TABS = [
 
 export function BulkUploadModal({ existingTestCases = [], onImport, onUpdate, onClose }) {
   const { projectId } = useParams()
-  const [step, setStep]       = useState(0)   // 0=upload 1=preview 2=done
-  const [rows, setRows]       = useState([])
-  const [filename, setFilename] = useState('')
-  const [summary, setSummary] = useState(null)
+  const [step, setStep]           = useState(0)   // 0=upload 1=preview 2=done
+  const [rows, setRows]           = useState([])
+  const [filename, setFilename]   = useState('')
+  const [summary, setSummary]     = useState(null)
   const [importTab, setImportTab] = useState('file')
+  const [isMultiSheet, setIsMultiSheet] = useState(false)
+  const [sheetNames, setSheetNames]     = useState([])
 
   const validRows   = rows.filter((r) => r.errors.length === 0 && r.action !== 'skip')
   const invalidRows = rows.filter((r) => r.errors.length > 0)
@@ -315,8 +314,10 @@ export function BulkUploadModal({ existingTestCases = [], onImport, onUpdate, on
 
   const handleFile = (buffer, name) => {
     try {
-      const { rows: parsed } = parseTestCaseFile(buffer, name)
+      const { rows: parsed, isMultiSheet: multi, sheetNames: sheets } = parseTestCaseFile(buffer, name)
       setFilename(name)
+      setIsMultiSheet(multi || false)
+      setSheetNames(sheets || [])
       setRows(prepareRows(parsed, existingTestCases))
       setStep(1)
     } catch (err) {
@@ -355,11 +356,27 @@ export function BulkUploadModal({ existingTestCases = [], onImport, onUpdate, on
       const existing = r.duplicate.testCase
       onUpdate({
         ...existing,
-        ...incoming,
+        // Update structural/organisational fields from the sheet
+        folder: incoming.folder || existing.folder || '',
+        module: incoming.module || existing.module,
+        title: incoming.title,
+        scenario: incoming.scenario || existing.scenario,
+        preconditions: incoming.preconditions || existing.preconditions,
+        steps: incoming.steps?.length ? incoming.steps : existing.steps,
+        testData: incoming.testData || existing.testData,
+        expected: incoming.expected || existing.expected,
+        devRemarks: incoming.devRemarks || existing.devRemarks,
+        qaRemarks: incoming.qaRemarks || existing.qaRemarks,
+        // Preserve all user-set execution data
         id: existing.id,
         createdAt: existing.createdAt,
+        status: existing.status,
+        actual: existing.actual,
         assignee: existing.assignee,
         priority: existing.priority ?? incoming.priority,
+        tags: existing.tags,
+        evidenceLinks: existing.evidenceLinks,
+        history: existing.history,
         updatedAt: now,
         skipActivityLog: true,
       })
@@ -391,7 +408,7 @@ export function BulkUploadModal({ existingTestCases = [], onImport, onUpdate, on
     setStep(2)
   }
 
-  const reset = () => { setStep(0); setRows([]); setFilename(''); setSummary(null); setImportTab('file') }
+  const reset = () => { setStep(0); setRows([]); setFilename(''); setSummary(null); setImportTab('file'); setIsMultiSheet(false); setSheetNames([]) }
 
   // Widen modal during preview
   const modalStyle = step === 1 ? { maxWidth: 1040 } : {}
@@ -435,6 +452,11 @@ export function BulkUploadModal({ existingTestCases = [], onImport, onUpdate, on
           <>
             <div className="bulk-file-bar">
               <span className="bulk-filename">📄 {filename}</span>
+              {isMultiSheet && (
+                <span className="bulk-sheet-info">
+                  {sheetNames.length} sheets → folders: <strong>{sheetNames.join(', ')}</strong>
+                </span>
+              )}
               <button className="link-btn" type="button" onClick={reset}>Change file</button>
             </div>
 
@@ -459,6 +481,7 @@ export function BulkUploadModal({ existingTestCases = [], onImport, onUpdate, on
                   <thead>
                     <tr>
                       <th style={{ width: 40 }}>#</th>
+                      {isMultiSheet && <th style={{ width: 110 }}>Folder</th>}
                       <th>Title</th>
                       <th style={{ width: 120 }}>Module</th>
                       <th style={{ width: 110 }}>Status</th>
@@ -471,6 +494,13 @@ export function BulkUploadModal({ existingTestCases = [], onImport, onUpdate, on
                     {rows.map((row) => (
                       <tr key={row.rowNum} className={row.errors.length ? 'bulk-row--invalid' : row.duplicate ? 'bulk-row--duplicate' : ''}>
                         <td className="mono tc-id">{row.rowNum}</td>
+                        {isMultiSheet && (
+                          <td>
+                            {row.data.folder
+                              ? <span className="bulk-folder-badge">📁 {row.data.folder}</span>
+                              : <em className="text-muted">—</em>}
+                          </td>
+                        )}
                         <td title={row.data.title} className="bulk-cell-truncate">
                           {row.data.title || <em className="text-muted">—</em>}
                         </td>
@@ -487,7 +517,7 @@ export function BulkUploadModal({ existingTestCases = [], onImport, onUpdate, on
                             onChange={(e) => setRowAction(row.rowNum, e.target.value)}
                           >
                             {row.duplicate && <option value="skip">Skip</option>}
-                            {row.duplicate?.type === 'existing' && <option value="update">Update existing</option>}
+                            {row.duplicate?.type === 'existing' && <option value="update">Update existing (move to folder)</option>}
                             <option value="create">Import as new</option>
                             {!row.duplicate && <option value="skip">Skip</option>}
                           </select>

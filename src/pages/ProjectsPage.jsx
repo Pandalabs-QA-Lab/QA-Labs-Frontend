@@ -1,19 +1,16 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Modal } from '../components/Modal'
 import { PageHeader } from '../components/PageHeader'
+import { StatusPill } from '../components/StatusPill'
 import { useConfirm } from '../context/useConfirm'
 import { useToast } from '../context/useToast'
 import { useProjects } from '../hooks/useProjects'
 import { useTeamMembers } from '../hooks/useTeamMembers'
-import { getTestCases } from '../utils/storage'
+import { getBugs, getTestCases, getTestRuns } from '../utils/storage'
 import { useUserRole } from '../hooks/useUserRole'
-
-function getPassRate(projectId) {
-  const tcs = getTestCases(projectId)
-  if (!tcs.length) return 0
-  return Math.round((tcs.filter((t) => t.status === 'Pass').length / tcs.length) * 100)
-}
+import { isOpenBug } from '../utils/reportMetrics'
+import { XIcon } from '../components/Icons'
 
 function Avatar({ name }) {
   const initials = name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase()
@@ -36,12 +33,33 @@ export function ProjectsPage() {
   const [form, setForm] = useState(blank)
   const [saving, setSaving] = useState(false)
 
+  const enriched = useMemo(() => projects.map((project) => {
+    const cases = getTestCases(project.id)
+    const bugs = getBugs(project.id)
+    const runs = getTestRuns(project.id)
+    const passed = cases.filter(tc => tc.status === 'Pass').length
+    const passRate = cases.length > 0 ? Math.round((passed / cases.length) * 100) : 0
+    const openBugs = bugs.filter(isOpenBug).length
+    const inProgressRuns = runs.filter(r => !r.completedAt).length
+    const lastRun = runs
+      .filter(r => r.completedAt)
+      .sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt))[0]
+    const projectMembers = members.filter((m) => project.memberIds?.includes(m.id))
+    const healthTone = cases.length === 0 ? 'neutral'
+      : passRate >= 70 ? 'passed'
+      : passRate >= 50 ? 'pending'
+      : 'failed'
+    const healthLabel = cases.length === 0 ? 'No data'
+      : passRate >= 70 ? 'Healthy'
+      : passRate >= 50 ? 'At risk'
+      : 'Critical'
+    return { ...project, totalCases: cases.length, openBugs, totalRuns: runs.length, inProgressRuns, passRate, lastRun, projectMembers, healthTone, healthLabel }
+  }), [projects, members])
+
   const toggleMember = (id) =>
     setForm((f) => ({
       ...f,
-      memberIds: f.memberIds.includes(id)
-        ? f.memberIds.filter((m) => m !== id)
-        : [...f.memberIds, id],
+      memberIds: f.memberIds.includes(id) ? f.memberIds.filter((m) => m !== id) : [...f.memberIds, id],
     }))
 
   const handleAdd = async (e) => {
@@ -54,15 +72,13 @@ export function ProjectsPage() {
         description: form.description.trim(),
         memberIds: form.memberIds,
       })
-
       if (remoteReady && !remoteSaved) {
-        toast.error('Project saved in this browser, but Firebase sync failed. Check Firestore rules/network and try again.')
+        toast.error('Project saved locally but Firebase sync failed. Check Firestore rules and try again.')
       } else if (!remoteReady) {
-        toast.warning('Project saved locally only. Sign in with a real account and wait for cloud sync before creating shared projects.')
+        toast.warning('Project saved locally only.')
       } else {
-        toast.success('Project created and synced to Firebase.')
+        toast.success('Project created.')
       }
-
       setForm(blank)
       setShowAdd(false)
     } finally {
@@ -74,7 +90,7 @@ export function ProjectsPage() {
     <>
       <PageHeader
         title="Projects"
-        description="Create and manage QA workspaces for each product."
+        description="Your QA workspaces. Each project tracks test cases, bugs, runs, and requirements independently."
         action={
           isLead && (
             <button className="primary-button" type="button" onClick={() => setShowAdd(true)}>
@@ -90,42 +106,107 @@ export function ProjectsPage() {
           <p>Click "New project" to create your first QA workspace.</p>
         </section>
       ) : (
-        <section className="project-grid">
-          {projects.map((project) => {
-            const passRate = getPassRate(project.id)
-            const projectMembers = members.filter((m) => project.memberIds?.includes(m.id))
-            return (
-              <article className="project-card" key={project.id}>
-                <div>
-                  <h2>{project.name}</h2>
-                  {project.description && <p>{project.description}</p>}
-                </div>
+        <section className="proj-grid">
+          {enriched.map((project) => (
+            <article key={project.id} className="proj-card">
 
-                {projectMembers.length > 0 && (
-                  <div className="avatar-row" aria-label="Team members">
-                    {projectMembers.map((m) => <Avatar key={m.id} name={m.name} />)}
-                  </div>
+              {/* Header: initial + name + health */}
+              <div className="proj-card-head">
+                <div className="proj-card-initial">
+                  {(project.name || '?')[0].toUpperCase()}
+                </div>
+                <div className="proj-card-head-text">
+                  <h2 className="proj-card-name">{project.name}</h2>
+                  {project.description && (
+                    <p className="proj-card-desc">{project.description}</p>
+                  )}
+                </div>
+                {project.totalCases > 0 && (
+                  <StatusPill tone={project.healthTone} style={{ flexShrink: 0 }}>
+                    {project.healthLabel}
+                  </StatusPill>
                 )}
+              </div>
 
-                <div className="progress-cell">
-                  <span>{passRate}% pass rate</span>
-                  <div className="progress-track">
-                    <span style={{ width: `${passRate}%` }} />
+              {/* Stat row */}
+              <div className="proj-card-stats">
+                <div className="proj-card-stat">
+                  <strong>{project.totalCases}</strong>
+                  <span>cases</span>
+                </div>
+                <div className="proj-card-stat">
+                  <strong className={project.openBugs > 0 ? 'proj-stat-danger' : ''}>
+                    {project.openBugs}
+                  </strong>
+                  <span>open bugs</span>
+                </div>
+                <div className="proj-card-stat">
+                  <strong>{project.totalRuns}</strong>
+                  <span>runs</span>
+                </div>
+              </div>
+
+              {/* Pass rate bar */}
+              {project.totalCases > 0 && (
+                <div className="proj-card-rate">
+                  <div className="proj-card-rate-row">
+                    <span className="proj-card-rate-label">Pass rate</span>
+                    <span className="proj-card-rate-val">{project.passRate}%</span>
+                  </div>
+                  <div className="proj-card-bar-track">
+                    <div
+                      className="proj-card-bar-fill"
+                      style={{ width: `${project.passRate}%` }}
+                    />
                   </div>
                 </div>
+              )}
 
-                <div className="card-actions">
-                  <Link className="text-link" to={`/projects/${project.id}/test-cases`}>
-                    Open project →
+              {/* Footer */}
+              <div className="proj-card-footer">
+                <div className="proj-card-footer-left">
+                  {project.projectMembers.length > 0 && (
+                    <div className="avatar-row">
+                      {project.projectMembers.slice(0, 5).map(m => (
+                        <Avatar key={m.id} name={m.name} />
+                      ))}
+                      {project.projectMembers.length > 5 && (
+                        <span className="avatar proj-avatar-extra">
+                          +{project.projectMembers.length - 5}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {project.inProgressRuns > 0 && (
+                    <span className="proj-card-live">
+                      <span className="proj-card-live-dot" />
+                      {project.inProgressRuns} run{project.inProgressRuns !== 1 ? 's' : ''} active
+                    </span>
+                  )}
+                  {!project.inProgressRuns && project.lastRun && (
+                    <span className="proj-card-last-run">
+                      Last run {new Date(project.lastRun.completedAt).toLocaleDateString()}
+                    </span>
+                  )}
+                </div>
+
+                <div className="proj-card-footer-right">
+                  <Link
+                    to={`/projects/${project.id}/dashboard`}
+                    className="primary-button"
+                    style={{ textDecoration: 'none', fontSize: 13, padding: '6px 14px' }}
+                  >
+                    Open →
                   </Link>
                   {isLead && (
                     <button
-                      className="danger-button"
+                      className="icon-btn-action text-danger"
                       type="button"
+                      title="Delete project"
                       onClick={async () => {
                         const ok = await confirm({
                           title: 'Delete project?',
-                          message: `All test cases, bugs, and runs in "${project.name}" will be permanently deleted and cannot be recovered.`,
+                          message: `All data in "${project.name}" will be permanently deleted.`,
                           confirmLabel: 'Delete project',
                           danger: true,
                           requireText: project.name,
@@ -133,13 +214,13 @@ export function ProjectsPage() {
                         if (ok) removeProject(project.id)
                       }}
                     >
-                      Delete
+                      <XIcon width={14} height={14} />
                     </button>
                   )}
                 </div>
-              </article>
-            )
-          })}
+              </div>
+            </article>
+          ))}
         </section>
       )}
 
@@ -163,7 +244,6 @@ export function ProjectsPage() {
                 placeholder="Short description"
               />
             </label>
-
             {members.length > 0 && (
               <fieldset className="member-picker">
                 <legend>Team members</legend>
@@ -182,7 +262,6 @@ export function ProjectsPage() {
                 </div>
               </fieldset>
             )}
-
             <div className="modal-footer">
               <button type="button" className="secondary-button" onClick={() => { setShowAdd(false); setForm(blank) }}>
                 Cancel

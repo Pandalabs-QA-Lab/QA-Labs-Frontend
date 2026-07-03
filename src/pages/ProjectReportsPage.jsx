@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { PageHeader } from '../components/PageHeader'
 import { StatusPill } from '../components/StatusPill'
-import { PassRing, Bar, RunTrend } from '../components/Charts'
+import { PassRing, Bar, RunTrend, TrendLineChart } from '../components/Charts'
 import { useBugs } from '../hooks/useBugs'
 import { useProjects } from '../hooks/useProjects'
 import { useTestCases } from '../hooks/useTestCases'
@@ -102,10 +102,26 @@ export function ProjectReportsPage() {
   return (
     <>
       <PageHeader
+        backTo={`/projects`}
         title="Reports"
         description={`Pass rates, bug severity, and run history for ${projectName}.`}
         action={
           <div className="page-actions-row">
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => {
+                const url = `${window.location.origin}${window.location.pathname}#/public-report/${projectId}`
+                navigator.clipboard.writeText(url).then(() => {
+                  // brief visual confirmation — swap text temporarily via DOM since no toast ref here
+                  const btn = document.getElementById('share-report-btn')
+                  if (btn) { const orig = btn.textContent; btn.textContent = 'Link copied!'; setTimeout(() => { btn.textContent = orig }, 2000) }
+                })
+              }}
+              id="share-report-btn"
+            >
+              Share report
+            </button>
             <button className="secondary-button" type="button" onClick={() => exportTestCases(testCases, projectName)}>
               <DownloadIcon width={14} height={14} /> Cases
             </button>
@@ -239,6 +255,17 @@ export function ProjectReportsPage() {
         </article>
       </section>
 
+      {/* ── Pass rate trend ─────────────────────────────────────────────────── */}
+      {runs.length >= 2 && (
+        <section className="panel mb-md">
+          <div className="section-header">
+            <h2>Pass rate trend</h2>
+            <StatusPill tone="neutral">{runs.length} runs</StatusPill>
+          </div>
+          <TrendLineChart runs={runs} />
+        </section>
+      )}
+
       {/* ── Test run history ───────────────────────────────────────────────── */}
       <section className="panel mb-md">
         <div className="section-header">
@@ -250,7 +277,7 @@ export function ProjectReportsPage() {
         ) : (
           <>
             <div className="table-wrap" style={{ borderBottom: 'none', borderRadius: '10px 10px 0 0' }}>
-              <table className="rpt-table">
+              <table className="rpt-table rpt-run-history-table">
                 <thead>
                   <tr>
                     <th>Date</th>
@@ -340,7 +367,7 @@ export function ProjectReportsPage() {
             <StatusPill tone="neutral">{moduleStats.length} module{moduleStats.length !== 1 ? 's' : ''}</StatusPill>
           </div>
           <div className="table-wrap">
-            <table className="rpt-table">
+            <table className="rpt-table rpt-module-table">
               <thead>
                 <tr>
                   <th>Module</th>

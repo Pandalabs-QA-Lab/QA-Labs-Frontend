@@ -207,28 +207,35 @@ function getCurrentUserName() {
   }
 }
 
+const ADMIN_EMAIL = 'admin@qalabs.com'
+
 export async function syncUserProfileRemote(firebaseUser, customName) {
   if (!isFirebaseEnabled || !firebaseUser || firebaseUser.isAnonymous || !db) return
   ensureFirebase()
 
+  const isAdminAccount = firebaseUser.email?.toLowerCase() === ADMIN_EMAIL
+
   // Check if this user is marked as deleted in teamMembers to prevent session recreation
-  try {
-    const { getTeamMembersRaw, isDeleted } = await import('./storage')
-    const allMembers = getTeamMembersRaw()
-    const matching = allMembers.find((m) => m.uid === firebaseUser.uid)
-    if (matching && isDeleted(matching)) {
-      console.warn('[remoteStorage] User is deleted from workspace, skipping profile sync')
-      return
+  // (admin is exempt — cannot be locked out)
+  if (!isAdminAccount) {
+    try {
+      const { getTeamMembersRaw, isDeleted } = await import('./storage')
+      const allMembers = getTeamMembersRaw()
+      const matching = allMembers.find((m) => m.uid === firebaseUser.uid)
+      if (matching && isDeleted(matching)) {
+        console.warn('[remoteStorage] User is deleted from workspace, skipping profile sync')
+        return
+      }
+    } catch (err) {
+      console.error('[remoteStorage] Failed to check deletion status before profile sync:', err)
     }
-  } catch (err) {
-    console.error('[remoteStorage] Failed to check deletion status before profile sync:', err)
   }
 
   const memberRef = doc(db, ...workspacePath(), 'members', firebaseUser.uid)
   try {
     const docSnap = await getDoc(memberRef)
     const now = new Date().toISOString()
-    
+
     let createdAt = now
     let existingData = {}
     if (docSnap.exists()) {
@@ -237,7 +244,7 @@ export async function syncUserProfileRemote(firebaseUser, customName) {
         createdAt = existingData.createdAt
       }
     }
-    
+
     const profileName = customName || existingData.name || firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User'
     const profile = {
       uid: firebaseUser.uid,
@@ -248,10 +255,31 @@ export async function syncUserProfileRemote(firebaseUser, customName) {
       createdAt,
       lastSeenAt: now,
     }
-    
+
     await setDoc(memberRef, cleanRecord(profile), { merge: true })
   } catch (err) {
     console.error('[remoteStorage] Failed to sync user profile:', err)
+  }
+
+  // Ensure admin always has a teamMembers record with QA Lead so every code
+  // path that reads teamMembers agrees on the role.
+  if (isAdminAccount) {
+    try {
+      const adminMemberRef = doc(db, ...membersPath(), firebaseUser.uid)
+      const adminSnap = await getDoc(adminMemberRef)
+      const base = adminSnap.exists() ? adminSnap.data() : {}
+      await setDoc(adminMemberRef, cleanRecord({
+        ...base,
+        id: firebaseUser.uid,
+        uid: firebaseUser.uid,
+        name: base.name || 'Admin',
+        email: firebaseUser.email,
+        role: 'QA Lead',
+        updatedAt: new Date().toISOString(),
+      }), { merge: true })
+    } catch (err) {
+      console.error('[remoteStorage] Failed to sync admin teamMember record:', err)
+    }
   }
 }
 
@@ -436,4 +464,78 @@ export async function fetchProjectDataOnce(projectId) {
     collectOnce(milestonesPath(projectId)),
   ])
   return { testCases, bugs, runs, requirements, testPlans, milestones }
+}
+
+
+// Comments — nested under project/entityType/entityId/comments
+const commentsPath = (projectId, entityType, entityId) =>
+  [...projectPath(projectId), entityType + 's', entityId, 'comments']
+
+export const subscribeComments = (projectId, entityType, entityId, onChange) =>
+  subscribe(commentsPath(projectId, entityType, entityId), onChange, byCreatedAtAsc)
+
+export const saveCommentRemote = (projectId, entityType, entityId, comment) =>
+  upsert(commentsPath(projectId, entityType, entityId), comment)
+
+export async function deleteCommentRemote(projectId, entityType, entityId, commentId) {
+  if (!isFirebaseEnabled || !db) return
+  try {
+    await deleteDoc(doc(db, ...commentsPath(projectId, entityType, entityId), commentId))
+  } catch (err) {
+    console.error('[remoteStorage] Comment deletion failed:', err)
+  }
+}
+
+// Invite token — stored on the workspace root doc
+export async function getOrCreateInviteToken() {
+  ensureFirebase()
+  const wsRef = doc(db, ...workspacePath())
+  const snap = await getDoc(wsRef)
+  const data = snap.exists() ? snap.data() : {}
+  if (data.inviteToken) return data.inviteToken
+  const token = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)
+  await setDoc(wsRef, { inviteToken: token }, { merge: true })
+  return token
+}
+
+export async function revokeInviteToken() {
+  ensureFirebase()
+  const wsRef = doc(db, ...workspacePath())
+  await setDoc(wsRef, { inviteToken: null }, { merge: true })
+}
+
+export async function validateInviteToken(token) {
+  ensureFirebase()
+  const wsRef = doc(db, ...workspacePath())
+  const snap = await getDoc(wsRef)
+  if (!snap.exists()) return false
+  return snap.data().inviteToken === token
+}
+
+// Project-scoped invite tokens — stored on the project doc itself
+export async function getOrCreateProjectInviteToken(projectId) {
+  ensureFirebase()
+  const ref = doc(db, ...projectsPath(), projectId)
+  const snap = await getDoc(ref)
+  const data = snap.exists() ? snap.data() : {}
+  if (data.inviteToken) return data.inviteToken
+  const token = 'p_' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)
+  await setDoc(ref, { inviteToken: token }, { merge: true })
+  return token
+}
+
+export async function revokeProjectInviteToken(projectId) {
+  ensureFirebase()
+  const ref = doc(db, ...projectsPath(), projectId)
+  await setDoc(ref, { inviteToken: null }, { merge: true })
+}
+
+// Returns projectId if token is valid, null otherwise
+export async function validateProjectInviteToken(token) {
+  ensureFirebase()
+  const snapshot = await getDocs(collection(db, ...projectsPath()))
+  for (const d of snapshot.docs) {
+    if (d.data().inviteToken === token) return d.id
+  }
+  return null
 }

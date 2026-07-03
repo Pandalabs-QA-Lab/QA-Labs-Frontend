@@ -21,10 +21,14 @@ import { STATUS_TONE, TEST_STATUSES, summarizeStatuses } from '../utils/status'
 import { isFirebaseEnabled, auth } from '../utils/firebase'
 import { saveRunDraftRemote, deleteRunDraftRemote, logActivityRemote } from '../utils/remoteStorage'
 import { JUnitUploadModal } from '../components/JUnitUploadModal'
+import { EditBugModal } from '../components/EditBugModal'
 import { testRunMatchesSearch } from '../utils/entitySearch'
+import { useRequirements } from '../hooks/useRequirements'
+import { getPlanTestCases } from '../utils/planMetrics'
 
 const BUG_STATUSES = ['Open', 'In review', 'Closed']
 const SEVERITIES = ['Critical', 'Major', 'Minor']
+const PRIORITIES = ['High', 'Medium', 'Low']
 
 function failingModules(cases = []) {
   const counts = cases.reduce((acc, tc) => {
@@ -102,10 +106,12 @@ export function TestRunsPage() {
   const toast = useToast()
   const { projects } = useProjects()
   const { testCases, updateTestCase } = useTestCases(projectId)
-  const { bugs, addBug } = useBugs(projectId)
+  const { bugs, addBug, updateBug } = useBugs(projectId)
+  const [editingBug, setEditingBug] = useState(null)
   const { runs, addRun, refresh } = useTestRuns(projectId)
   const { plans, linkRunToPlan } = useTestPlans(projectId)
   const { sharedSteps } = useSharedSteps(projectId)
+  const { requirements } = useRequirements(projectId)
   const project = projects.find((p) => p.id === projectId)
 
   const { firebaseUser } = useAuth()
@@ -153,7 +159,7 @@ export function TestRunsPage() {
   const [selectedTestPlanId, setSelectedTestPlanId] = useState('')
   const [linkedRequirementId, setLinkedRequirementId] = useState('')
   const [selectedFilterPlanId, setSelectedFilterPlanId] = useState('')
-  const [selectedIds, setSelectedIds] = useState(() => testCases.map((tc) => tc.id))
+  const [selectedIds, setSelectedIds] = useState([])
   const [currentIndex, setCurrentIndex] = useState(0)
   const activeCaseRef = useRef(null)
   const [showJunitModal, setShowJunitModal] = useState(false)
@@ -186,7 +192,36 @@ export function TestRunsPage() {
         setMode('setup')
       }, 0)
     }
+
+    // Auto-populate from a Test Plan (e.g. "Start a run" from the plan detail page)
+    const planIdParam = searchParams.get('planId')
+    if (planIdParam && !runCasesParam) {
+      const plan = plans.find((p) => p.id === planIdParam)
+      if (plan) {
+        const scopeCases = getPlanTestCases(plan, requirements, testCases)
+        setTimeout(() => {
+          setSelectedTestPlanId(planIdParam)
+          setSelectedIds(scopeCases.map((tc) => tc.id))
+          const dateStr = new Date().toLocaleDateString()
+          setRunName(`${plan.name} \u2013 ${dateStr}`)
+          setDraftDismissed(true)
+          setMode('setup')
+        }, 0)
+      }
+    }
   }, [location.search])
+
+  // Auto-populate test run cases and name when selected test plan changes in setup dropdown
+  useEffect(() => {
+    if (!selectedTestPlanId) return
+    const plan = plans.find((p) => p.id === selectedTestPlanId)
+    if (!plan) return
+
+    const scopeCases = getPlanTestCases(plan, requirements, testCases)
+    setSelectedIds(scopeCases.map((tc) => tc.id))
+    const dateStr = new Date().toLocaleDateString()
+    setRunName(`${plan.name} \u2013 ${dateStr}`)
+  }, [selectedTestPlanId, plans, requirements, testCases])
 
   useEffect(() => {
     if (activeCaseRef.current) {
@@ -211,9 +246,15 @@ export function TestRunsPage() {
   const [runSearch, setRunSearch] = useState('')
   const [casePageSize, setCasePageSize] = useState(25)
   const [casePage, setCasePage] = useState(1)
+  const [caseFolderFilter, setCaseFolderFilter] = useState('')
+  const [caseModuleFilter, setCaseModuleFilter] = useState('')
+  const [caseStatusFilter, setCaseStatusFilter] = useState('')
 
   const sortedTestCases = useMemo(
     () => [...testCases].sort((a, b) => {
+      const aSelected = selectedIds.includes(a.id)
+      const bSelected = selectedIds.includes(b.id)
+      if (aSelected !== bSelected) return aSelected ? -1 : 1
       const aKey = a.sourceTcId || ''
       const bKey = b.sourceTcId || ''
       if (aKey && bKey) return aKey.localeCompare(bKey, undefined, { numeric: true })
@@ -221,7 +262,7 @@ export function TestRunsPage() {
       if (bKey) return 1
       return new Date(a.createdAt || 0) - new Date(b.createdAt || 0)
     }),
-    [testCases],
+    [testCases, selectedIds],
   )
 
   const selectedCases = useMemo(
@@ -258,13 +299,69 @@ export function TestRunsPage() {
   const runsStartItem = totalRuns === 0 ? 0 : runsStartIndex + 1
   const runsEndItem = Math.min(runsStartIndex + runsPageSize, totalRuns)
 
+  const availableFolders = useMemo(
+    () => [...new Set(testCases.map((tc) => tc.folder).filter(Boolean))].sort(),
+    [testCases],
+  )
+
+  // Auto-suggest a run name from the active filter or most common module/folder
+  const suggestedRunName = useMemo(() => {
+    if (caseModuleFilter) return caseModuleFilter
+    if (caseFolderFilter) return caseFolderFilter
+    if (selectedIds.length === 0) return ''
+    const selected = testCases.filter((tc) => selectedIds.includes(tc.id))
+    const modCounts = {}
+    const folderCounts = {}
+    selected.forEach((tc) => {
+      if (tc.module) modCounts[tc.module] = (modCounts[tc.module] || 0) + 1
+      if (tc.folder) folderCounts[tc.folder] = (folderCounts[tc.folder] || 0) + 1
+    })
+    const topModule = Object.entries(modCounts).sort((a, b) => b[1] - a[1])[0]?.[0]
+    const topFolderEntry = Object.entries(folderCounts).sort((a, b) => b[1] - a[1])[0]
+    if (topFolderEntry && topFolderEntry[1] >= selected.length * 0.6 && topModule) {
+      return `${topFolderEntry[0]} – ${topModule}`
+    }
+    return topModule || topFolderEntry?.[0] || ''
+  }, [caseModuleFilter, caseFolderFilter, selectedIds, testCases])
+
+  // Auto-fill run name whenever suggestion changes, but only if user hasn't typed a custom name
+  const prevSuggestedRef = useRef('')
+  useEffect(() => {
+    if (!suggestedRunName) return
+    setRunName((current) => {
+      const isAutoFilled = !current.trim() || current === prevSuggestedRef.current
+      if (isAutoFilled) {
+        prevSuggestedRef.current = suggestedRunName
+        return suggestedRunName
+      }
+      return current
+    })
+  }, [suggestedRunName])
+
+  const availableModules = useMemo(() => {
+    const base = caseFolderFilter ? testCases.filter((tc) => (tc.folder || '') === caseFolderFilter) : testCases
+    return [...new Set(base.map((tc) => tc.module).filter(Boolean))].sort()
+  }, [testCases, caseFolderFilter])
+
+  const availableStatuses = useMemo(
+    () => TEST_STATUSES.filter((s) => testCases.some((tc) => (tc.status || 'Not Executed') === s)),
+    [testCases],
+  )
+
   // Case-picker pagination (run setup). Selection (Select all / Clear / checked
   // ids) still operates on the full list, not just the visible page.
-  const caseTotal = sortedTestCases.length
+  const moduleFilteredCases = useMemo(() => {
+    let cases = sortedTestCases
+    if (caseFolderFilter) cases = cases.filter((tc) => (tc.folder || '') === caseFolderFilter)
+    if (caseModuleFilter) cases = cases.filter((tc) => tc.module === caseModuleFilter)
+    if (caseStatusFilter) cases = cases.filter((tc) => (tc.status || 'Not Executed') === caseStatusFilter)
+    return cases
+  }, [sortedTestCases, caseFolderFilter, caseModuleFilter, caseStatusFilter])
+  const caseTotal = moduleFilteredCases.length
   const caseTotalPages = Math.max(1, Math.ceil(caseTotal / casePageSize))
   const caseCurrentPage = Math.min(casePage, caseTotalPages)
   const caseStartIndex = (caseCurrentPage - 1) * casePageSize
-  const paginatedCases = sortedTestCases.slice(caseStartIndex, caseStartIndex + casePageSize)
+  const paginatedCases = moduleFilteredCases.slice(caseStartIndex, caseStartIndex + casePageSize)
   const caseStartItem = caseTotal === 0 ? 0 : caseStartIndex + 1
   const caseEndItem = Math.min(caseStartIndex + casePageSize, caseTotal)
   const completedCount = selectedCases.filter((tc) => {
@@ -475,7 +572,7 @@ export function TestRunsPage() {
     const totalBugsLogged = bugsLogged + autoBugIds.length
     const allLinkedBugIds = [...loggedBugIds, ...autoBugIds]
 
-    const runNameText = runName.trim() || `${project?.name ?? 'Project'} run`
+    const runNameText = runName.trim() || suggestedRunName || `${project?.name ?? 'Project'} run`
     const run = addRun({
       id: runId,
       name: runNameText,
@@ -618,9 +715,16 @@ export function TestRunsPage() {
   // ── Draft: discard ─────────────────────────────────────────────────────────
   const discardDraft = async () => {
     if (!activeDraft) return
+    const executedCount = activeDraft.cases?.filter((c) => c.status && c.status !== 'Not Executed').length || 0
+    const totalCount = activeDraft.cases?.length || 0
     const ok = await confirm({
       title: 'Discard draft?',
       message: 'The saved progress for this test run will be permanently deleted.',
+      details: [
+        `Run: ${activeDraft.name || 'Unnamed'}`,
+        `${executedCount} of ${totalCount} cases executed`,
+        activeDraft.build ? `Build: ${activeDraft.build}` : null,
+      ].filter(Boolean),
       confirmLabel: 'Discard',
       danger: true,
     })
@@ -709,6 +813,7 @@ export function TestRunsPage() {
   return (
     <>
       <PageHeader
+        backTo={`/projects`}
         title="Test runs"
         description="Select test cases, execute them, and save run history for release reporting."
         action={
@@ -774,6 +879,116 @@ export function TestRunsPage() {
             </div>
           </div>
 
+          {(availableFolders.length > 0 || availableModules.length > 0 || availableStatuses.length > 0) && (
+            <div className="run-module-filter-bar">
+              {availableFolders.length > 0 && (
+                <select
+                  value={caseFolderFilter}
+                  onChange={(e) => { setCaseFolderFilter(e.target.value); setCaseModuleFilter(''); setCasePage(1) }}
+                  aria-label="Filter cases by folder"
+                  className={caseFolderFilter ? 'filter-active' : ''}
+                >
+                  <option value="">All folders</option>
+                  {availableFolders.map((f) => <option key={f} value={f}>{f}</option>)}
+                </select>
+              )}
+              {availableModules.length > 0 && (
+                <select
+                  value={caseModuleFilter}
+                  onChange={(e) => { setCaseModuleFilter(e.target.value); setCasePage(1) }}
+                  aria-label="Filter cases by module"
+                  className={caseModuleFilter ? 'filter-active' : ''}
+                >
+                  <option value="">All modules</option>
+                  {availableModules.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              )}
+              {availableStatuses.length > 0 && (
+                <select
+                  value={caseStatusFilter}
+                  onChange={(e) => { setCaseStatusFilter(e.target.value); setCasePage(1) }}
+                  aria-label="Filter cases by status"
+                  className={caseStatusFilter ? 'filter-active' : ''}
+                >
+                  <option value="">All statuses</option>
+                  {availableStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              )}
+              {caseFolderFilter && !caseModuleFilter && (
+                <>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => {
+                      const ids = testCases.filter((tc) => (tc.folder || '') === caseFolderFilter).map((tc) => tc.id)
+                      setSelectedIds((prev) => [...new Set([...prev, ...ids])])
+                    }}
+                  >
+                    Select all in folder
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => {
+                      const ids = new Set(testCases.filter((tc) => (tc.folder || '') === caseFolderFilter).map((tc) => tc.id))
+                      setSelectedIds((prev) => prev.filter((id) => !ids.has(id)))
+                    }}
+                  >
+                    Deselect folder
+                  </button>
+                </>
+              )}
+              {caseModuleFilter && (
+                <>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => {
+                      const ids = testCases.filter((tc) => tc.module === caseModuleFilter).map((tc) => tc.id)
+                      setSelectedIds((prev) => [...new Set([...prev, ...ids])])
+                    }}
+                  >
+                    Select all in module
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => {
+                      const ids = new Set(testCases.filter((tc) => tc.module === caseModuleFilter).map((tc) => tc.id))
+                      setSelectedIds((prev) => prev.filter((id) => !ids.has(id)))
+                    }}
+                  >
+                    Deselect module
+                  </button>
+                </>
+              )}
+              {caseStatusFilter && (
+                <>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => {
+                      const ids = testCases.filter((tc) => (tc.status || 'Not Executed') === caseStatusFilter).map((tc) => tc.id)
+                      setSelectedIds((prev) => [...new Set([...prev, ...ids])])
+                    }}
+                  >
+                    Select all with status
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => {
+                      const ids = new Set(testCases.filter((tc) => (tc.status || 'Not Executed') === caseStatusFilter).map((tc) => tc.id))
+                      setSelectedIds((prev) => prev.filter((id) => !ids.has(id)))
+                    }}
+                  >
+                    Deselect status
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
           {testCases.length === 0 ? (
             <div className="empty-table-row">No test cases available for this project.</div>
           ) : (
@@ -812,7 +1027,19 @@ export function TestRunsPage() {
                       <td className="mono tc-id">{tc.sourceTcId || tc.id.slice(0, 8).toUpperCase()}</td>
                       <td>{tc.title}</td>
                       <td>{tc.module || '-'}</td>
-                      <td>{tc.priority}</td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <select
+                          className={`inline-select status-select priority-${(tc.priority || 'medium').toLowerCase()}`}
+                          value={tc.priority || 'Medium'}
+                          aria-label={`Priority for ${tc.title}`}
+                          onChange={(e) => updateTestCase(withHistory(
+                            { ...tc, priority: e.target.value, updatedAt: new Date().toISOString(), updatedBy: user },
+                            historyEntry('priority', user, `Priority changed to ${e.target.value}`, tc.priority, e.target.value),
+                          ))}
+                        >
+                          {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                      </td>
                       <td style={{ textAlign: 'center' }}>
                         <select
                           className={`inline-select status-select status-select--${STATUS_TONE[tc.status] ?? 'pending'}`}
@@ -889,7 +1116,17 @@ export function TestRunsPage() {
                     <span className="mono tc-id">{tc.sourceTcId || tc.id.slice(0, 8).toUpperCase()}</span>
                   </label>
                   <div className="mobile-card-header-badges">
-                    <span className={`priority-badge priority-${tc.priority?.toLowerCase()}`}>{tc.priority}</span>
+                    <select
+                      className={`inline-select status-select priority-${(tc.priority || 'medium').toLowerCase()}`}
+                      value={tc.priority || 'Medium'}
+                      aria-label={`Priority for ${tc.title}`}
+                      onChange={(e) => updateTestCase(withHistory(
+                        { ...tc, priority: e.target.value, updatedAt: new Date().toISOString(), updatedBy: user },
+                        historyEntry('priority', user, `Priority changed to ${e.target.value}`, tc.priority, e.target.value),
+                      ))}
+                    >
+                      {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
+                    </select>
                     <select
                       className={`inline-select status-select status-select--${STATUS_TONE[tc.status] ?? 'neutral'}`}
                       value={tc.status}
@@ -1003,9 +1240,14 @@ export function TestRunsPage() {
                   <BugIcon width={14} height={14} />
                   Linked Bug: <strong>{linkedBug.sourceBugId || linkedBug.id.slice(0, 8).toUpperCase()} - {linkedBug.title}</strong>
                 </span>
-                <Link to={`/projects/${projectId}/bugs`} className="text-link" style={{ fontSize: '13px' }}>
-                  View tracker →
-                </Link>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  style={{ fontSize: '12px' }}
+                  onClick={() => setEditingBug(linkedBug)}
+                >
+                  Edit bug
+                </button>
               </div>
             )}
 
@@ -1101,6 +1343,30 @@ export function TestRunsPage() {
             </div>
             <div className="run-side-section">
               <h3>Cases</h3>
+              <div className="run-bulk-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  style={{ flex: 1, fontSize: '12px' }}
+                  onClick={() => {
+                    const patch = Object.fromEntries(selectedCases.map((tc) => [tc.id, { status: 'Pass', actual: results[tc.id]?.actual ?? '' }]))
+                    setResults((prev) => ({ ...prev, ...patch }))
+                  }}
+                >
+                  All Pass
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  style={{ flex: 1, fontSize: '12px' }}
+                  onClick={() => {
+                    const patch = Object.fromEntries(selectedCases.map((tc) => [tc.id, { status: 'Fail', actual: results[tc.id]?.actual ?? '' }]))
+                    setResults((prev) => ({ ...prev, ...patch }))
+                  }}
+                >
+                  All Fail
+                </button>
+              </div>
               <div className="run-case-list">
                 {selectedCases.map((tc, index) => {
                   const status = results[tc.id]?.status ?? tc.status ?? 'Not Executed'
@@ -1187,7 +1453,7 @@ export function TestRunsPage() {
             </div>
           )}
           <div className="run-nav-actions">
-            <button className="secondary-button" type="button" onClick={() => setMode('setup')}>Start another run</button>
+            <button className="secondary-button" type="button" onClick={() => { setMode('setup'); setRunName(''); prevSuggestedRef.current = '' }}>Start another run</button>
             <button
               className="secondary-button"
               type="button"
@@ -1404,6 +1670,14 @@ export function TestRunsPage() {
           addBug={addBug}
           plans={plans}
           user={user}
+        />
+      )}
+      {editingBug && (
+        <EditBugModal
+          bug={editingBug}
+          projectId={projectId}
+          onSave={(updated) => { updateBug(updated); setEditingBug(null) }}
+          onClose={() => setEditingBug(null)}
         />
       )}
     </>

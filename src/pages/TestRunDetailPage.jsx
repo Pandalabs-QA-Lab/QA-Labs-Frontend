@@ -1,9 +1,11 @@
+import { useState, useRef, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { PageHeader } from '../components/PageHeader'
 import { StatusPill } from '../components/StatusPill'
+import { EditBugModal } from '../components/EditBugModal'
 import { useTestRuns } from '../hooks/useTestRuns'
 import { useBugs } from '../hooks/useBugs'
-import { STATUS_TONE } from '../utils/status'
+import { STATUS_TONE, TEST_STATUSES, summarizeStatuses } from '../utils/status'
 import { BugIcon, ShieldCheckIcon, CheckCircleIcon } from '../components/Icons'
 import { PassRing, Bar } from '../components/Charts'
 
@@ -21,8 +23,16 @@ function getFailureModules(cases = []) {
 
 export function TestRunDetailPage() {
   const { projectId, runId } = useParams()
-  const { runs } = useTestRuns(projectId)
-  const { bugs } = useBugs(projectId)
+  const { runs, updateRun } = useTestRuns(projectId)
+  const { bugs, updateBug } = useBugs(projectId)
+  const [editingName, setEditingName] = useState(false)
+  const [editingBug, setEditingBug] = useState(null)
+  const [nameValue, setNameValue] = useState('')
+  const nameInputRef = useRef(null)
+
+  useEffect(() => {
+    if (editingName && nameInputRef.current) nameInputRef.current.select()
+  }, [editingName])
 
   const run = runs.find((r) => r.id === runId)
 
@@ -34,6 +44,35 @@ export function TestRunDetailPage() {
         <Link to={`/projects/${projectId}/test-runs`} className="text-link">Back to runs</Link>
       </section>
     )
+  }
+
+  const startEditName = () => {
+    setNameValue(run.name || '')
+    setEditingName(true)
+  }
+
+  const saveName = () => {
+    const trimmed = nameValue.trim()
+    if (trimmed && trimmed !== run.name) updateRun({ ...run, name: trimmed })
+    setEditingName(false)
+  }
+
+  const handleNameKeyDown = (e) => {
+    if (e.key === 'Enter') saveName()
+    if (e.key === 'Escape') setEditingName(false)
+  }
+
+  const updateCaseStatus = (caseIdx, newStatus) => {
+    const updatedCases = run.cases.map((c, i) => i === caseIdx ? { ...c, status: newStatus } : c)
+    const summary = summarizeStatuses(updatedCases)
+    const passRate = summary.total ? Math.round((summary.passed / summary.total) * 100) : 0
+    updateRun({
+      ...run,
+      cases: updatedCases,
+      failureModules: getFailureModules(updatedCases),
+      passRate,
+      ...summary,
+    })
   }
 
   const rate = run.total ? Math.round((run.passed / run.total) * 100) : 0
@@ -53,7 +92,34 @@ export function TestRunDetailPage() {
   return (
     <>
       <PageHeader
-        title={run.name || 'Test run details'}
+        backTo={`/projects/${projectId}/test-runs`}
+        title={
+          editingName ? (
+            <span className="run-name-edit-row">
+              <input
+                ref={nameInputRef}
+                className="run-name-input"
+                value={nameValue}
+                onChange={(e) => setNameValue(e.target.value)}
+                onKeyDown={handleNameKeyDown}
+                onBlur={saveName}
+                aria-label="Edit run name"
+              />
+              <button type="button" className="primary-button" style={{ fontSize: 13, padding: '4px 12px' }} onMouseDown={(e) => { e.preventDefault(); saveName() }}>Save</button>
+              <button type="button" className="secondary-button" style={{ fontSize: 13, padding: '4px 10px' }} onMouseDown={(e) => { e.preventDefault(); setEditingName(false) }}>Cancel</button>
+            </span>
+          ) : (
+            <span className="run-name-display-row">
+              {run.name || 'Test run details'}
+              <button type="button" className="run-name-edit-btn" onClick={startEditName} aria-label="Edit run name" title="Rename run">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                </svg>
+              </button>
+            </span>
+          )
+        }
         description={`Executed by ${run.executedBy || 'Unknown'} on ${new Date(run.completedAt || run.date).toLocaleString()}`}
         action={
           <Link to={`/projects/${projectId}/test-runs`} className="secondary-button" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>
@@ -171,17 +237,27 @@ export function TestRunDetailPage() {
                     <td>{tc.module || '-'}</td>
                     <td>{tc.priority || '-'}</td>
                     <td>
-                      <StatusPill tone={STATUS_TONE[tc.status] ?? 'pending'}>
-                        {tc.status}
-                      </StatusPill>
+                      <select
+                        className={`inline-select status-select status-select--${STATUS_TONE[tc.status] ?? 'pending'}`}
+                        value={tc.status || 'Not Executed'}
+                        aria-label={`Status for ${tc.title}`}
+                        onChange={(e) => updateCaseStatus(idx, e.target.value)}
+                      >
+                        {TEST_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
                     </td>
                     <td style={{ whiteSpace: 'normal' }}>
                       {tc.actual || <span className="text-muted">Not recorded</span>}
                       {tc.bugId && activeBugIds.has(tc.bugId) && (
                         <div className="mt-xs">
-                          <Link to={`/projects/${projectId}/bugs`} className="text-link status-text--failed" style={{ fontSize: '0.85em', display: 'inline-flex', alignItems: 'center', gap: 4, textDecoration: 'none' }}>
-                            <BugIcon width={12} height={12} /> Bug linked
-                          </Link>
+                          <button
+                            type="button"
+                            className="text-link status-text--failed"
+                            style={{ fontSize: '0.85em', display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                            onClick={() => setEditingBug(bugs.find((b) => b.id === tc.bugId))}
+                          >
+                            <BugIcon width={12} height={12} /> Bug linked — click to edit
+                          </button>
                         </div>
                       )}
                     </td>
@@ -192,6 +268,15 @@ export function TestRunDetailPage() {
           </div>
         )}
       </section>
+
+      {editingBug && (
+        <EditBugModal
+          bug={editingBug}
+          projectId={projectId}
+          onSave={(updated) => { updateBug(updated); setEditingBug(null) }}
+          onClose={() => setEditingBug(null)}
+        />
+      )}
     </>
   )
 }

@@ -6,10 +6,13 @@ import { Modal } from '../components/Modal'
 import { useRequirements } from '../hooks/useRequirements'
 import { useTestCases } from '../hooks/useTestCases'
 import { useBugs } from '../hooks/useBugs'
+import { useTestRuns } from '../hooks/useTestRuns'
 import { RequirementBulkUploadModal } from '../components/RequirementBulkUploadModal'
 import { useConfirm } from '../context/useConfirm'
 import { useToast } from '../context/useToast'
-import { normalizeTestStatus } from '../utils/status'
+import { useUser } from '../context/UserContext'
+import { normalizeTestStatus, TEST_STATUSES, STATUS_TONE } from '../utils/status'
+import { withHistory, historyEntry } from '../utils/history'
 import { useUserRole } from '../hooks/useUserRole'
 import { requirementMatchesSearch } from '../utils/entitySearch'
 import { testCaseMatchesSearch } from '../utils/testCaseSearch'
@@ -18,28 +21,167 @@ const PRIORITIES = ['High', 'Medium', 'Low']
 
 const blankForm = () => ({ key: '', title: '', description: '', priority: 'Medium', testCaseIds: [] })
 
-// Coverage verdict for a requirement, from its linked (existing) test cases.
-function coverageOf(req, tcById) {
+function TcPickerSection({ form, testCases, tcFolders, tcFolderFilter, setTcFolderFilter, availableFolders, addFolder, removeFolder, fullySelectedFolders, tcModules, tcSearch, setTcSearch, tcModuleFilter, setTcModuleFilter, filteredTcs, toggleTc, addModule, removeModule, fullySelectedModules, availableModules }) {
+  return (
+    <div>
+      <label>Linked test cases <span className="hint">({form.testCaseIds.length} selected)</span></label>
+
+      <div className="req-module-add-row">
+        {availableFolders.length > 0 && (
+          <select
+            value=""
+            onChange={(e) => { if (e.target.value) addFolder(e.target.value) }}
+            aria-label="Add all cases from a folder"
+            className="req-module-add-select"
+          >
+            <option value="">+ Add by folder…</option>
+            {availableFolders.map((f) => {
+              const count = testCases.filter((tc) => (tc.folder || '') === f).length
+              return <option key={f} value={f}>{f} ({count} cases)</option>
+            })}
+          </select>
+        )}
+        {availableModules.length > 0 && (
+          <select
+            value=""
+            onChange={(e) => { if (e.target.value) addModule(e.target.value) }}
+            aria-label="Add all cases from a module"
+            className="req-module-add-select"
+          >
+            <option value="">+ Add by module…</option>
+            {availableModules.map((m) => {
+              const count = testCases.filter((tc) => tc.module === m).length
+              return <option key={m} value={m}>{m} ({count} cases)</option>
+            })}
+          </select>
+        )}
+      </div>
+
+      {(fullySelectedFolders.length > 0 || fullySelectedModules.length > 0) && (
+        <div className="req-module-chips">
+          {fullySelectedFolders.map((f) => {
+            const count = testCases.filter((tc) => (tc.folder || '') === f).length
+            return (
+              <span key={`folder:${f}`} className="req-module-chip req-folder-chip">
+                <span className="req-module-chip-name">📁 {f}</span>
+                <span className="req-module-chip-count">{count}</span>
+                <button type="button" className="req-module-chip-remove" onClick={() => removeFolder(f)} aria-label={`Remove folder ${f}`}>×</button>
+              </span>
+            )
+          })}
+          {fullySelectedModules.map((m) => {
+            const count = testCases.filter((tc) => tc.module === m).length
+            return (
+              <span key={m} className="req-module-chip">
+                <span className="req-module-chip-name">{m}</span>
+                <span className="req-module-chip-count">{count}</span>
+                <button type="button" className="req-module-chip-remove" onClick={() => removeModule(m)} aria-label={`Remove ${m}`}>×</button>
+              </span>
+            )
+          })}
+        </div>
+      )}
+
+      <div className="req-tc-toolbar">
+        <input
+          value={tcSearch}
+          onChange={(e) => setTcSearch(e.target.value)}
+          placeholder="Search test cases…"
+          className="req-tc-search"
+        />
+        {tcFolders.length > 0 && (
+          <select
+            value={tcFolderFilter}
+            onChange={(e) => { setTcFolderFilter(e.target.value); setTcModuleFilter('') }}
+            className={`req-tc-module-select${tcFolderFilter ? ' filter-active' : ''}`}
+            aria-label="Filter by folder"
+          >
+            <option value="">All folders</option>
+            {tcFolders.map((f) => <option key={f} value={f}>{f}</option>)}
+          </select>
+        )}
+        {tcModules.length > 0 && (
+          <select
+            value={tcModuleFilter}
+            onChange={(e) => setTcModuleFilter(e.target.value)}
+            className={`req-tc-module-select${tcModuleFilter ? ' filter-active' : ''}`}
+            aria-label="Filter by module"
+          >
+            <option value="">All modules</option>
+            {tcModules.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        )}
+      </div>
+
+      {(tcFolderFilter || tcModuleFilter) && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+          {tcFolderFilter && (
+            <span className="req-tc-active-filter">
+              Folder: {tcFolderFilter}
+              <button type="button" className="req-tc-filter-clear" onClick={() => { setTcFolderFilter(''); setTcModuleFilter('') }} aria-label="Clear folder filter">×</button>
+            </span>
+          )}
+          {tcModuleFilter && (
+            <span className="req-tc-active-filter">
+              Module: {tcModuleFilter}
+              <button type="button" className="req-tc-filter-clear" onClick={() => setTcModuleFilter('')} aria-label="Clear module filter">×</button>
+            </span>
+          )}
+        </div>
+      )}
+
+      <div className="req-tc-picker">
+        {testCases.length === 0 ? (
+          <p className="panel-empty-text">No test cases in this project yet.</p>
+        ) : filteredTcs.length === 0 ? (
+          <p className="panel-empty-text">No matches.</p>
+        ) : (
+          filteredTcs.map((tc) => (
+            <label key={tc.id} className="req-tc-option">
+              <input
+                className="row-checkbox"
+                type="checkbox"
+                checked={form.testCaseIds.includes(tc.id)}
+                onChange={() => toggleTc(tc.id)}
+              />
+              <span className="mono req-tc-id">{tc.sourceTcId || tc.id.slice(0, 8).toUpperCase()}</span>
+              <span className="req-tc-title" title={tc.title}>{tc.title}</span>
+            </label>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Coverage verdict for a requirement — uses latest run status, falls back to tc.status.
+function coverageOf(req, tcById, runStatusMap = {}) {
   const linked = (req.testCaseIds || []).map((id) => tcById.get(id)).filter(Boolean)
   const total = linked.length
-  const passed = linked.filter((t) => normalizeTestStatus(t.status) === 'Pass').length
-  const failed = linked.filter((t) => ['Fail', 'Blocker'].includes(normalizeTestStatus(t.status))).length
-  const pending = linked.filter((t) => normalizeTestStatus(t.status) === 'Not Executed').length
+  const getStatus = (tc) => normalizeTestStatus(runStatusMap[tc.id] || tc.status)
+  const passed  = linked.filter((t) => getStatus(t) === 'Pass').length
+  const failed  = linked.filter((t) => ['Fail', 'Blocker'].includes(getStatus(t))).length
+  const skipped = linked.filter((t) => getStatus(t) === 'Skipped').length
+  const pending = linked.filter((t) => getStatus(t) === 'Not Executed').length
+  // Verified: no failures AND every non-skipped TC has passed (skipped don't block verification)
+  const isVerified = total > 0 && failed === 0 && passed > 0 && (passed + skipped) === total
   let verdict
-  if (total === 0) verdict = { label: 'Not covered', tone: 'failed' }
-  else if (failed > 0) verdict = { label: 'Failing', tone: 'failed' }
-  else if (passed === total) verdict = { label: 'Verified', tone: 'passed' }
-  else verdict = { label: 'In progress', tone: 'pending' }
+  if (total === 0)  verdict = { label: 'Not covered', tone: 'failed' }
+  else if (failed > 0)  verdict = { label: 'Failing', tone: 'failed' }
+  else if (isVerified)  verdict = { label: 'Verified', tone: 'passed' }
+  else                  verdict = { label: 'In progress', tone: 'pending' }
   const pct = total > 0 ? Math.round((passed / total) * 100) : 0
-  return { linked, total, passed, failed, pending, verdict, pct }
+  return { linked, total, passed, failed, skipped, pending, verdict, pct }
 }
 
 export function RequirementsPage() {
   const { projectId, requirementId } = useParams()
   const { requirements, addRequirement, updateRequirement, removeRequirement } = useRequirements(projectId)
-  const { testCases } = useTestCases(projectId)
+  const { testCases, updateTestCase } = useTestCases(projectId)
   const { bugs } = useBugs(projectId)
+  const { runs } = useTestRuns(projectId)
   const { isLead } = useUserRole()
+  const { user } = useUser()
   const confirm = useConfirm()
   const toast = useToast()
 
@@ -47,31 +189,47 @@ export function RequirementsPage() {
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState(blankForm)
   const [tcSearch, setTcSearch] = useState('')
+  const [tcFolderFilter, setTcFolderFilter] = useState('')
+  const [tcModuleFilter, setTcModuleFilter] = useState('')
   const [search, setSearch] = useState('')
   const [showImport, setShowImport] = useState(false)
 
   const tcById = useMemo(() => new Map(testCases.map((tc) => [tc.id, tc])), [testCases])
 
-  // Newest requirements first.
-  const rows = [...requirements]
-    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
-    .map((req) => ({ req, cov: coverageOf(req, tcById) }))
+  // Build latest-run status map so coverage stats reflect actual run results.
+  const runStatusMap = useMemo(() => {
+    const sorted = [...runs].sort(
+      (a, b) => new Date(a.completedAt || a.startedAt || 0) - new Date(b.completedAt || b.startedAt || 0)
+    )
+    const map = {}
+    sorted.forEach((run) => {
+      ;(run.cases || []).forEach((rc) => { if (rc.testCaseId) map[rc.testCaseId] = rc.status })
+    })
+    return map
+  }, [runs])
+
+  // Newest requirements first — wrapped in useMemo so stats stay reactive to run/tc changes.
+  const rows = useMemo(() => (
+    [...requirements]
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+      .map((req) => ({ req, cov: coverageOf(req, tcById, runStatusMap) }))
+  ), [requirements, tcById, runStatusMap])
 
   const filteredRows = useMemo(() => {
     return rows.filter(({ req }) => requirementMatchesSearch(req, search))
   }, [rows, search])
 
-  const uncoveredCount = rows.filter(({ cov }) => cov.total === 0).length
-
-  const totalReqs = requirements.length
-  const coveredReqs = rows.filter((r) => r.cov.total > 0).length
-  const verifiedReqs = rows.filter((r) => r.cov.verdict.label === 'Verified').length
-  const failingReqs = rows.filter((r) => r.cov.verdict.label === 'Failing').length
-  const verifiedPct = totalReqs ? Math.round((verifiedReqs / totalReqs) * 100) : 0
+  const totalReqs      = rows.length
+  const coveredReqs    = rows.filter((r) => r.cov.total > 0).length
+  const verifiedReqs   = rows.filter((r) => r.cov.verdict.label === 'Verified').length
+  const failingReqs    = rows.filter((r) => r.cov.verdict.label === 'Failing').length
+  const inProgressReqs = rows.filter((r) => r.cov.verdict.label === 'In progress').length
+  const uncoveredCount = rows.filter((r) => r.cov.total === 0).length
+  const verifiedPct    = totalReqs ? Math.round((verifiedReqs / totalReqs) * 100) : 0
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
 
-  const openAdd = () => { setEditing(null); setForm(blankForm()); setTcSearch(''); setShowForm(true) }
+  const openAdd = () => { setEditing(null); setForm(blankForm()); setTcSearch(''); setTcFolderFilter(''); setTcModuleFilter(''); setShowForm(true) }
   const openEdit = (req) => {
     setEditing(req)
     setForm({
@@ -82,6 +240,8 @@ export function RequirementsPage() {
       testCaseIds: req.testCaseIds || [],
     })
     setTcSearch('')
+    setTcFolderFilter('')
+    setTcModuleFilter('')
     setShowForm(true)
   }
 
@@ -89,6 +249,26 @@ export function RequirementsPage() {
     ...f,
     testCaseIds: f.testCaseIds.includes(id) ? f.testCaseIds.filter((x) => x !== id) : [...f.testCaseIds, id],
   }))
+
+  const addFolder = (folderName) => {
+    const ids = testCases.filter((tc) => (tc.folder || '') === folderName).map((tc) => tc.id)
+    setForm((f) => ({ ...f, testCaseIds: [...new Set([...f.testCaseIds, ...ids])] }))
+  }
+
+  const removeFolder = (folderName) => {
+    const ids = new Set(testCases.filter((tc) => (tc.folder || '') === folderName).map((tc) => tc.id))
+    setForm((f) => ({ ...f, testCaseIds: f.testCaseIds.filter((id) => !ids.has(id)) }))
+  }
+
+  const addModule = (moduleName) => {
+    const moduleIds = testCases.filter((tc) => tc.module === moduleName).map((tc) => tc.id)
+    setForm((f) => ({ ...f, testCaseIds: [...new Set([...f.testCaseIds, ...moduleIds])] }))
+  }
+
+  const removeModule = (moduleName) => {
+    const moduleIds = new Set(testCases.filter((tc) => tc.module === moduleName).map((tc) => tc.id))
+    setForm((f) => ({ ...f, testCaseIds: f.testCaseIds.filter((id) => !moduleIds.has(id)) }))
+  }
 
   const submit = (e) => {
     e.preventDefault()
@@ -113,9 +293,55 @@ export function RequirementsPage() {
     if (ok) { removeRequirement(req.id); toast.success('Requirement deleted') }
   }
 
-  const filteredTcs = testCases.filter((tc) => {
-    return testCaseMatchesSearch(tc, tcSearch)
-  })
+  // Unique folder and module values for the picker filter
+  const tcFolders = useMemo(() => [...new Set(testCases.map((t) => t.folder).filter(Boolean))].sort(), [testCases])
+  const tcModules = useMemo(() => {
+    const base = tcFolderFilter ? testCases.filter((tc) => (tc.folder || '') === tcFolderFilter) : testCases
+    return [...new Set(base.map((t) => t.module).filter(Boolean))].sort()
+  }, [testCases, tcFolderFilter])
+
+  // Folders where every test case is already selected
+  const fullySelectedFolders = useMemo(
+    () => tcFolders.filter((f) => {
+      const fCases = testCases.filter((tc) => (tc.folder || '') === f)
+      return fCases.length > 0 && fCases.every((tc) => form.testCaseIds.includes(tc.id))
+    }),
+    [tcFolders, testCases, form.testCaseIds],
+  )
+
+  const availableFolders = useMemo(
+    () => tcFolders.filter((f) => !fullySelectedFolders.includes(f)),
+    [tcFolders, fullySelectedFolders],
+  )
+
+  // Modules where every test case is already in form.testCaseIds
+  const fullySelectedModules = useMemo(
+    () => tcModules.filter((m) => {
+      const mCases = testCases.filter((tc) => tc.module === m)
+      return mCases.length > 0 && mCases.every((tc) => form.testCaseIds.includes(tc.id))
+    }),
+    [tcModules, testCases, form.testCaseIds],
+  )
+
+  const availableModules = useMemo(
+    () => tcModules.filter((m) => !fullySelectedModules.includes(m)),
+    [tcModules, fullySelectedModules],
+  )
+
+  const filteredTcs = useMemo(() => {
+    const matched = testCases.filter((tc) => {
+      if (!testCaseMatchesSearch(tc, tcSearch)) return false
+      if (tcFolderFilter && (tc.folder || '') !== tcFolderFilter) return false
+      if (tcModuleFilter && tc.module !== tcModuleFilter) return false
+      return true
+    })
+    // Sort by sourceTcId ascending (TC-XX-001, TC-XX-002…)
+    return [...matched].sort((a, b) => {
+      const idA = a.sourceTcId || ''
+      const idB = b.sourceTcId || ''
+      return idA.localeCompare(idB)
+    })
+  }, [testCases, tcSearch, tcModuleFilter])
 
   if (requirementId) {
     const detail = rows.find(({ req }) => req.id === requirementId)
@@ -147,7 +373,7 @@ export function RequirementsPage() {
               <Link to={`/projects/${projectId}/requirements`} className="secondary-button">Back</Link>
               {cov.total > 0 && isLead && (
                 <Link 
-                  to={`/projects/${projectId}/test-runs?runCases=${req.testCaseIds.join(',')}&reqId=${req.id}&reqKey=${encodeURIComponent(req.key || '')}&reqTitle=${encodeURIComponent(req.title)}`} 
+                  to={`/projects/${projectId}/test-runs?runCases=${cov.linked.map(tc => tc.id).join(',')}&reqId=${req.id}&reqKey=${encodeURIComponent(req.key || '')}&reqTitle=${encodeURIComponent(req.title)}`} 
                   className="primary-button"
                   style={{ textDecoration: 'none' }}
                 >
@@ -212,7 +438,19 @@ export function RequirementsPage() {
                       <td><Link className="text-link" to={`/projects/${projectId}/test-cases/${tc.id}`}>{tc.title}</Link></td>
                       <td>{tc.module || '—'}</td>
                       <td>{tc.priority || '—'}</td>
-                      <td><StatusPill tone={normalizeTestStatus(tc.status) === 'Pass' ? 'passed' : ['Fail', 'Blocker'].includes(normalizeTestStatus(tc.status)) ? 'failed' : 'pending'}>{tc.status || 'Not Executed'}</StatusPill></td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <select
+                          className={`inline-select status-select status-select--${STATUS_TONE[tc.status] ?? 'pending'}`}
+                          value={tc.status || 'Not Executed'}
+                          aria-label={`Status for ${tc.title}`}
+                          onChange={(e) => updateTestCase(withHistory(
+                            { ...tc, status: e.target.value, updatedAt: new Date().toISOString() },
+                            historyEntry('status', user, `Status changed to ${e.target.value}`, tc.status, e.target.value),
+                          ))}
+                        >
+                          {TEST_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -278,35 +516,28 @@ export function RequirementsPage() {
                 Description
                 <textarea rows={3} value={form.description} onChange={set('description')} placeholder="What this requirement means / acceptance criteria…" />
               </label>
-              <div>
-                <label>Linked test cases <span className="hint">({form.testCaseIds.length} selected)</span></label>
-                <input
-                  value={tcSearch}
-                  onChange={(e) => setTcSearch(e.target.value)}
-                  placeholder="Search test cases…"
-                  style={{ marginBottom: 8 }}
-                />
-                <div className="req-tc-picker">
-                  {testCases.length === 0 ? (
-                    <p className="panel-empty-text">No test cases in this project yet.</p>
-                  ) : filteredTcs.length === 0 ? (
-                    <p className="panel-empty-text">No matches.</p>
-                  ) : (
-                    filteredTcs.map((tc) => (
-                      <label key={tc.id} className="req-tc-option">
-                        <input
-                          className="row-checkbox"
-                          type="checkbox"
-                          checked={form.testCaseIds.includes(tc.id)}
-                          onChange={() => toggleTc(tc.id)}
-                        />
-                        <span className="mono req-tc-id">{tc.sourceTcId || tc.id.slice(0, 8).toUpperCase()}</span>
-                        <span className="req-tc-title" title={tc.title}>{tc.title}</span>
-                      </label>
-                    ))
-                  )}
-                </div>
-              </div>
+              <TcPickerSection
+                form={form}
+                testCases={testCases}
+                tcFolders={tcFolders}
+                tcFolderFilter={tcFolderFilter}
+                setTcFolderFilter={setTcFolderFilter}
+                availableFolders={availableFolders}
+                addFolder={addFolder}
+                removeFolder={removeFolder}
+                fullySelectedFolders={fullySelectedFolders}
+                tcModules={tcModules}
+                tcSearch={tcSearch}
+                setTcSearch={setTcSearch}
+                tcModuleFilter={tcModuleFilter}
+                setTcModuleFilter={setTcModuleFilter}
+                filteredTcs={filteredTcs}
+                toggleTc={toggleTc}
+                addModule={addModule}
+                removeModule={removeModule}
+                fullySelectedModules={fullySelectedModules}
+                availableModules={availableModules}
+              />
               <div className="modal-footer">
                 <button type="button" className="secondary-button" onClick={() => setShowForm(false)}>Cancel</button>
                 <button type="submit" className="primary-button" disabled={!form.title.trim()}>
@@ -323,6 +554,7 @@ export function RequirementsPage() {
   return (
     <>
       <PageHeader
+        backTo={`/projects`}
         title="Requirements"
         description="Track which features are covered by tests and whether they pass."
         action={
@@ -344,40 +576,36 @@ export function RequirementsPage() {
               </div>
             </div>
             <div className="req-coverage-bar">
-              {totalReqs > 0 && (
-                <>
-                  {verifiedReqs > 0 && <span className="req-coverage-seg req-coverage-seg--verified" style={{ flex: verifiedReqs }} title={`Verified: ${verifiedReqs}`} />}
-                  {(() => { const inProg = coveredReqs - verifiedReqs; return inProg > 0 && <span className="req-coverage-seg req-coverage-seg--inprogress" style={{ flex: inProg }} title={`In progress: ${inProg}`} /> })()}
-                  {(() => { const uncovered = totalReqs - coveredReqs; return uncovered > 0 && <span className="req-coverage-seg req-coverage-seg--uncovered" style={{ flex: uncovered }} title={`Not covered: ${uncovered}`} /> })()}
-                </>
-              )}
+              {verifiedReqs > 0 && <span className="req-coverage-seg req-coverage-seg--verified" style={{ flex: verifiedReqs }} title={`Verified: ${verifiedReqs}`} />}
+              {inProgressReqs > 0 && <span className="req-coverage-seg req-coverage-seg--inprogress" style={{ flex: inProgressReqs }} title={`In progress: ${inProgressReqs}`} />}
+              {failingReqs > 0 && <span className="req-coverage-seg req-coverage-seg--failing" style={{ flex: failingReqs }} title={`Failing: ${failingReqs}`} />}
+              {uncoveredCount > 0 && <span className="req-coverage-seg req-coverage-seg--uncovered" style={{ flex: uncoveredCount }} title={`Uncovered: ${uncoveredCount}`} />}
             </div>
           </div>
           <div className="req-coverage-stats">
-            <div className="req-stat">
-              <span className="req-stat-dot req-stat-dot--total" />
-              <span className="req-stat-label">Total</span>
+            <div className="req-stat req-stat--total">
               <strong>{totalReqs}</strong>
+              <span className="req-stat-label">Total</span>
             </div>
-            <div className="req-stat">
-              <span className="req-stat-dot req-stat-dot--covered" />
-              <span className="req-stat-label">Covered</span>
+            <div className="req-stat req-stat--covered">
               <strong>{coveredReqs}</strong>
+              <span className="req-stat-label">Covered</span>
             </div>
-            <div className="req-stat">
-              <span className="req-stat-dot req-stat-dot--verified" />
+            <div className="req-stat req-stat--verified">
+              <strong className={verifiedReqs > 0 ? 'req-stat-val--good' : ''}>{verifiedReqs}</strong>
               <span className="req-stat-label">Verified</span>
-              <strong>{verifiedReqs}</strong>
             </div>
-            <div className="req-stat">
-              <span className="req-stat-dot req-stat-dot--failing" />
+            <div className="req-stat req-stat--inprogress">
+              <strong>{inProgressReqs}</strong>
+              <span className="req-stat-label">In Progress</span>
+            </div>
+            <div className="req-stat req-stat--failing">
+              <strong className={failingReqs > 0 ? 'req-stat-val--bad' : ''}>{failingReqs}</strong>
               <span className="req-stat-label">Failing</span>
-              <strong>{failingReqs}</strong>
             </div>
-            <div className="req-stat">
-              <span className="req-stat-dot req-stat-dot--uncovered" />
-              <span className="req-stat-label">Uncovered</span>
+            <div className="req-stat req-stat--uncovered">
               <strong>{uncoveredCount}</strong>
+              <span className="req-stat-label">Uncovered</span>
             </div>
           </div>
         </section>
@@ -403,14 +631,14 @@ export function RequirementsPage() {
         {totalReqs === 0 ? (
           <div className="req-empty-state">
             <div className="req-empty-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
                 <path d="m9 11 3 3L22 4" />
               </svg>
             </div>
             <h3>No requirements yet</h3>
             <p>Add your first requirement and link the test cases that verify it.</p>
-            <button className="primary-button" type="button" onClick={openAdd}>+ Add requirement</button>
+            <button className="primary-button" type="button" onClick={openAdd}>Add your first requirement</button>
           </div>
         ) : (
           <div className="table-wrap">
@@ -489,7 +717,7 @@ export function RequirementsPage() {
                         {cov.total > 0 && isLead && (
                           <Link 
                             className="icon-btn-action" 
-                            to={`/projects/${projectId}/test-runs?runCases=${req.testCaseIds.join(',')}&reqId=${req.id}&reqKey=${encodeURIComponent(req.key || '')}&reqTitle=${encodeURIComponent(req.title)}`} 
+                            to={`/projects/${projectId}/test-runs?runCases=${cov.linked.map(tc => tc.id).join(',')}&reqId=${req.id}&reqKey=${encodeURIComponent(req.key || '')}&reqTitle=${encodeURIComponent(req.title)}`} 
                             title="Run linked tests"
                             aria-label="Run linked tests"
                           >
@@ -537,35 +765,28 @@ export function RequirementsPage() {
               Description
               <textarea rows={3} value={form.description} onChange={set('description')} placeholder="What this requirement means / acceptance criteria…" />
             </label>
-            <div>
-              <label>Linked test cases <span className="hint">({form.testCaseIds.length} selected)</span></label>
-              <input
-                value={tcSearch}
-                onChange={(e) => setTcSearch(e.target.value)}
-                placeholder="Search test cases…"
-                style={{ marginBottom: 8 }}
-              />
-              <div className="req-tc-picker">
-                {testCases.length === 0 ? (
-                  <p className="panel-empty-text">No test cases in this project yet.</p>
-                ) : filteredTcs.length === 0 ? (
-                  <p className="panel-empty-text">No matches.</p>
-                ) : (
-                  filteredTcs.map((tc) => (
-                    <label key={tc.id} className="req-tc-option">
-                      <input
-                        className="row-checkbox"
-                        type="checkbox"
-                        checked={form.testCaseIds.includes(tc.id)}
-                        onChange={() => toggleTc(tc.id)}
-                      />
-                      <span className="mono req-tc-id">{tc.sourceTcId || tc.id.slice(0, 8).toUpperCase()}</span>
-                      <span className="req-tc-title" title={tc.title}>{tc.title}</span>
-                    </label>
-                  ))
-                )}
-              </div>
-            </div>
+            <TcPickerSection
+              form={form}
+              testCases={testCases}
+              tcFolders={tcFolders}
+              tcFolderFilter={tcFolderFilter}
+              setTcFolderFilter={setTcFolderFilter}
+              availableFolders={availableFolders}
+              addFolder={addFolder}
+              removeFolder={removeFolder}
+              fullySelectedFolders={fullySelectedFolders}
+              tcModules={tcModules}
+              tcSearch={tcSearch}
+              setTcSearch={setTcSearch}
+              tcModuleFilter={tcModuleFilter}
+              setTcModuleFilter={setTcModuleFilter}
+              filteredTcs={filteredTcs}
+              toggleTc={toggleTc}
+              addModule={addModule}
+              removeModule={removeModule}
+              fullySelectedModules={fullySelectedModules}
+              availableModules={availableModules}
+            />
             <div className="modal-footer">
               <button type="button" className="secondary-button" onClick={() => setShowForm(false)}>Cancel</button>
               <button type="submit" className="primary-button" disabled={!form.title.trim()}>
