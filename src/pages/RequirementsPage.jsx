@@ -341,7 +341,7 @@ export function RequirementsPage() {
       const idB = b.sourceTcId || ''
       return idA.localeCompare(idB)
     })
-  }, [testCases, tcSearch, tcModuleFilter])
+  }, [testCases, tcSearch, tcModuleFilter, tcFolderFilter])
 
   if (requirementId) {
     const detail = rows.find(({ req }) => req.id === requirementId)

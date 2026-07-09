@@ -71,7 +71,7 @@
   gap: 2px;
   padding: 6px;
   border-bottom: 1px solid var(--border);
-  background: #f8f9fa;
+  background: var(--soft-bg);
 }
 
 .lp-demo-tab {

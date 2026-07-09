@@ -5,14 +5,14 @@ import { getProjectReportMetrics } from '../utils/reportMetrics'
 import { isFirebaseEnabled } from '../utils/firebase'
 
 export function PublicReportPage({ projectId }) {
-  const [state, setState] = useState('loading') // loading | done | error
+  const [state, setState] = useState(() => isFirebaseEnabled ? 'loading' : 'error')
   const [metrics, setMetrics] = useState(null)
   const [runs, setRuns] = useState([])
   const [projectName, setProjectName] = useState('')
   const [generatedAt] = useState(() => new Date().toLocaleString())
 
   useEffect(() => {
-    if (!isFirebaseEnabled) { setState('error'); return }
+    if (!isFirebaseEnabled) return
     Promise.all([
       getProjectsOnce(),
       fetchProjectDataOnce(projectId),
@@ -48,7 +48,7 @@ export function PublicReportPage({ projectId }) {
   }
 
   const { passRate, coverage, total, passed, failed, blocker, skipped, pending,
-          reported, inProgress, hold, needClarification, openBugs, critical, major, minor, health } = metrics
+          reported, inProgress, openBugs, critical, major, minor, health } = metrics
 
   return (
     <div className="pub-report">

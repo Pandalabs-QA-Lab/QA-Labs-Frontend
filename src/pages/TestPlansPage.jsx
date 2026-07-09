@@ -13,7 +13,7 @@ import { useConfirm } from '../context/useConfirm'
 import { useToast } from '../context/useToast'
 import { PencilIcon, XIcon, PlayIcon, CheckIcon } from '../components/Icons'
 import { getPlanMetrics, getMilestoneMetrics, getPlanTestCases } from '../utils/planMetrics'
-import { normalizeTestStatus, TEST_STATUSES, STATUS_TONE } from '../utils/status'
+import { normalizeTestStatus, STATUS_TONE } from '../utils/status'
 
 const PLAN_STATUSES = ['Open', 'Completed']
 const MILESTONE_STATUSES = ['Open', 'Completed']

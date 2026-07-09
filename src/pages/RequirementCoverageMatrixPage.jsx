@@ -7,7 +7,6 @@ import { useTestCases } from '../hooks/useTestCases'
 import { useTestRuns } from '../hooks/useTestRuns'
 import { normalizeTestStatus, STATUS_TONE } from '../utils/status'
 
-const PRIORITY_ORDER = { High: 0, Medium: 1, Low: 2 }
 const enc = (v) => encodeURIComponent(v)
 
 /**

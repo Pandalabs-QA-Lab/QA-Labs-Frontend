@@ -6,7 +6,6 @@ import { useTeamMembers } from '../hooks/useTeamMembers'
 import { useUser } from '../context/UserContext'
 import { validateProjectInviteToken } from '../utils/remoteStorage'
 import { auth } from '../utils/firebase'
-import { newId } from '../utils/id'
 
 export function JoinPage() {
   const { token } = useParams()

@@ -165,8 +165,11 @@ export function TestRunsPage() {
   const [showJunitModal, setShowJunitModal] = useState(false)
 
   const location = useLocation()
+  const hasInitializedParams = useRef(false)
 
   useEffect(() => {
+    if (hasInitializedParams.current) return
+
     const searchParams = new URLSearchParams(location.search)
     const runCasesParam = searchParams.get('runCases')
     const reqKeyParam = searchParams.get('reqKey')
@@ -175,6 +178,7 @@ export function TestRunsPage() {
 
     if (runCasesParam) {
       const caseIds = runCasesParam.split(',').filter(Boolean)
+      hasInitializedParams.current = true
       
       setTimeout(() => {
         setSelectedIds(caseIds)
@@ -198,6 +202,7 @@ export function TestRunsPage() {
     if (planIdParam && !runCasesParam) {
       const plan = plans.find((p) => p.id === planIdParam)
       if (plan) {
+        hasInitializedParams.current = true
         const scopeCases = getPlanTestCases(plan, requirements, testCases)
         setTimeout(() => {
           setSelectedTestPlanId(planIdParam)
@@ -209,7 +214,7 @@ export function TestRunsPage() {
         }, 0)
       }
     }
-  }, [location.search])
+  }, [location.search, plans, requirements, testCases])
 
   // Auto-populate test run cases and name when selected test plan changes in setup dropdown
   useEffect(() => {
@@ -218,9 +223,14 @@ export function TestRunsPage() {
     if (!plan) return
 
     const scopeCases = getPlanTestCases(plan, requirements, testCases)
-    setSelectedIds(scopeCases.map((tc) => tc.id))
+    const newIds = scopeCases.map((tc) => tc.id)
     const dateStr = new Date().toLocaleDateString()
-    setRunName(`${plan.name} \u2013 ${dateStr}`)
+    const newName = `${plan.name} \u2013 ${dateStr}`
+
+    setTimeout(() => {
+      setSelectedIds(newIds)
+      setRunName(newName)
+    }, 0)
   }, [selectedTestPlanId, plans, requirements, testCases])
 
   useEffect(() => {

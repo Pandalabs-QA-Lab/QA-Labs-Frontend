@@ -20,7 +20,6 @@ function CommentText({ text, members }) {
   const memberNames = members.map((m) => m.name)
   // Split on @Name patterns that match a known member
   const parts = []
-  let remaining = text
   const pattern = /@([\w.\s-]+?)(?=\s|$|[^a-zA-Z0-9.\s-])/g
   let lastIndex = 0
   let match

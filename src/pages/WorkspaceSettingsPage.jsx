@@ -120,7 +120,7 @@ export function WorkspaceSettingsPage() {
       setInviteLink(link)
       await navigator.clipboard.writeText(link)
       toast.success('Invite link copied to clipboard!')
-    } catch (err) {
+    } catch {
       toast.error('Failed to generate invite link.')
     } finally {
       setInviteLoading(false)
