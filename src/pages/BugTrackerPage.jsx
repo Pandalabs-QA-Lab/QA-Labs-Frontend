@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { EvidenceLinksField } from '../components/EvidenceLinksField'
 import { XIcon, ChevronLeftIcon, ChevronRightIcon, SortAscIcon, SortDescIcon, SortNoneIcon } from '../components/Icons'
 import { useParams, useSearchParams } from 'react-router-dom'
@@ -15,14 +15,16 @@ import { useTestCases } from '../hooks/useTestCases'
 import { useRequirements } from '../hooks/useRequirements'
 import { useActivity } from '../hooks/useActivity'
 import { useSortable } from '../hooks/useSortable'
-import { useProjects } from '../hooks/useProjects'
-import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { newId } from '../utils/id'
 import { downloadBugTemplate, getReporterName, exportBugs } from '../utils/export'
 import { BugBulkUploadModal } from '../components/BugBulkUploadModal'
 import { DownloadIcon, UploadIcon } from '../components/Icons'
 import { useUserRole } from '../hooks/useUserRole'
+import { useProjects } from '../hooks/useProjects'
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { bugMatchesSearch } from '../utils/entitySearch'
+import { getProjectMembers } from '../utils/projectMembers'
+import { getJiraSettings } from '../utils/storage'
 
 function SortTh({ col, label, active, dir, onSort }) {
   const isActive = active === col
@@ -168,6 +170,9 @@ function BugForm({ form, setForm, testCases, requirements = [], members, moduleS
           <select value={form.assignedTo} onChange={set('assignedTo')}>
             <option value="">Unassigned</option>
             {members.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
+            {form.assignedTo && !members.some((m) => m.name === form.assignedTo) && (
+              <option value={form.assignedTo}>{form.assignedTo} (not on project)</option>
+            )}
           </select>
         </label>
         <label>
@@ -275,7 +280,7 @@ function BugForm({ form, setForm, testCases, requirements = [], members, moduleS
 
 export function BugTrackerPage() {
   const { projectId } = useParams()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { user } = useUser()
   const { isTester, isViewer } = useUserRole()
   const { bugs, addBug, removeBug, updateBug } = useBugs(projectId)
@@ -285,6 +290,8 @@ export function BugTrackerPage() {
   const { getActivitiesByEntity } = useActivity()
   const { projects } = useProjects()
   const projectName = projects.find((p) => p.id === projectId)?.name ?? projectId
+  // Assignee options scoped to members attached to this project
+  const assignableMembers = getProjectMembers(members, projects.find((p) => p.id === projectId))
   const confirm = useConfirm()
   const toast = useToast()
 
@@ -302,10 +309,22 @@ export function BugTrackerPage() {
   const [page, setPage] = useState(1)
   const { sorted: sortedBugs, sortKey: bugSortKey, sortDir: bugSortDir, toggle: bugToggle } = useSortable(bugs)
 
-  const openAdd = useCallback(() => {
+  const openAddModal = useCallback(() => {
     setForm({ ...blank(), reportedBy: user })
     setShowAdd(true)
   }, [user])
+
+  // Open the "Log bug" modal automatically when arriving from a global quick
+  // action (Dashboard → project selector → /bugs?log=true), then strip the param.
+  useEffect(() => {
+    if (searchParams.get('log') === 'true') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: sync the ?log=true URL intent into modal state on navigation, then strip the param
+      openAddModal()
+      const next = new URLSearchParams(searchParams)
+      next.delete('log')
+      setSearchParams(next, { replace: true })
+    }
+  }, [searchParams, openAddModal, setSearchParams])
 
   const handleEscape = useCallback(() => {
     if (showAdd) {
@@ -316,10 +335,46 @@ export function BugTrackerPage() {
   }, [showAdd])
 
   useKeyboardShortcuts({
-    openAdd,
+    openAdd: openAddModal,
     onSave: null,
     onEscape: handleEscape,
   })
+
+  const openAdd = () => {
+    setForm({ ...blank(), reportedBy: user })
+    setShowAdd(true)
+  }
+
+  // Jira integration — build a pre-filled Jira issue creation URL and open it.
+  // Works with both Jira Server/Data Center and Jira Cloud (atlassian.net).
+  // Uses `key` (project key string) instead of `pid` (numeric ID) so the
+  // user's project key like "PROJ" works without needing the numeric ID.
+  const jiraSettings = getJiraSettings()
+  const pushToJira = (bug) => {
+    const { domain, projectKey } = jiraSettings
+    if (!domain || !projectKey) return
+    // Map QA Lab severity to Jira priority name
+    const priorityMap = { Critical: 'Highest', Major: 'High', Minor: 'Medium' }
+    const jiraPriority = priorityMap[bug.severity] || 'Medium'
+    // Build description text (Jira wiki markup)
+    const descParts = [
+      bug.description && `*Description:*\n${bug.description}`,
+      bug.stepsToReproduce && `*Steps to Reproduce:*\n${bug.stepsToReproduce}`,
+      bug.expected && `*Expected Result:*\n${bug.expected}`,
+      bug.actual && `*Actual Result:*\n${bug.actual}`,
+      bug.environment && `*Environment:* ${bug.environment}`,
+      bug.build && `*Build:* ${bug.build}`,
+      bug.module && `*Module:* ${bug.module}`,
+    ].filter(Boolean).join('\n\n')
+    const params = new URLSearchParams({
+      key: projectKey,
+      issuetype: 'Bug',
+      summary: bug.title,
+      description: descParts,
+      priority: jiraPriority,
+    })
+    window.open(`https://${domain}/secure/CreateIssueDetails!init.jspa?${params.toString()}`, '_blank', 'noopener')
+  }
 
   const openEdit = (bug) => {
     setEditing(bug)
@@ -451,12 +506,13 @@ export function BugTrackerPage() {
   return (
     <>
       <PageHeader
+        backTo={`/projects`}
         title="Bug tracker"
         description="Track defects by severity, status, and linked test case."
         action={
           <div className="page-actions-row">
-            <button className="secondary-button" type="button" onClick={() => exportBugs(bugs, projectName)} disabled={bugs.length === 0}>
-              <DownloadIcon width={14} height={14} /> Export
+            <button className="secondary-button" type="button" onClick={() => exportBugs(bugs, projectName)}>
+              <DownloadIcon width={14} height={14} /> Export CSV
             </button>
             <button className="secondary-button" type="button" onClick={downloadBugTemplate}>
               <DownloadIcon width={14} height={14} /> Bug template
@@ -593,6 +649,20 @@ export function BugTrackerPage() {
                       </select>
                     </td>
                     <td>
+                      {jiraSettings.domain && jiraSettings.projectKey && (
+                        <button
+                          className="jira-push-btn"
+                          type="button"
+                          title="Push to Jira"
+                          aria-label={`Push "${bug.title}" to Jira`}
+                          onClick={() => pushToJira(bug)}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                            <path d="M11.53 2c0 2.4 1.97 4.35 4.35 4.35h1.78v1.7c0 2.4 1.95 4.34 4.34 4.35V2.84a.84.84 0 0 0-.84-.84H11.53ZM6.77 6.8a4.362 4.362 0 0 0 4.34 4.34h1.8v1.72a4.362 4.362 0 0 0 4.34 4.34V7.63a.84.84 0 0 0-.84-.83H6.77ZM2 11.6c0 2.4 1.95 4.34 4.35 4.34h1.78v1.72c.01 2.4 1.96 4.34 4.35 4.34V12.43a.84.84 0 0 0-.84-.83H2Z"/>
+                          </svg>
+                          Jira
+                        </button>
+                      )}
                       {!isTester && (
                         <button
                           className="row-delete"
@@ -675,6 +745,14 @@ export function BugTrackerPage() {
                   )}
                 </div>
                 <div className="mobile-card-actions">
+                  {jiraSettings.domain && jiraSettings.projectKey && (
+                    <button className="jira-push-btn mobile-card-action-btn" type="button" onClick={() => pushToJira(bug)} aria-label={`Push "${bug.title}" to Jira`}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <path d="M11.53 2c0 2.4 1.97 4.35 4.35 4.35h1.78v1.7c0 2.4 1.95 4.34 4.34 4.35V2.84a.84.84 0 0 0-.84-.84H11.53ZM6.77 6.8a4.362 4.362 0 0 0 4.34 4.34h1.8v1.72a4.362 4.362 0 0 0 4.34 4.34V7.63a.84.84 0 0 0-.84-.83H6.77ZM2 11.6c0 2.4 1.95 4.34 4.35 4.34h1.78v1.72c.01 2.4 1.96 4.34 4.35 4.34V12.43a.84.84 0 0 0-.84-.83H2Z"/>
+                      </svg>
+                      Push to Jira
+                    </button>
+                  )}
                   <button className="secondary-button mobile-card-action-btn" type="button" onClick={() => openEdit(bug)}>
                     Open & Edit
                   </button>
@@ -724,7 +802,7 @@ export function BugTrackerPage() {
             setForm={setForm}
             testCases={testCases}
             requirements={requirements}
-            members={members}
+            members={assignableMembers}
             moduleSuggestions={moduleOptions}
             onCancel={() => setShowAdd(false)}
             onSubmit={handleAdd}
@@ -741,7 +819,7 @@ export function BugTrackerPage() {
             setForm={setForm}
             testCases={testCases}
             requirements={requirements}
-            members={members}
+            members={assignableMembers}
             moduleSuggestions={moduleOptions}
             history={editing.history}
             activities={getActivitiesByEntity('bug', editing.id)}

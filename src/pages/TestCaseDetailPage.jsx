@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { CommentsPanel } from '../components/CommentsPanel'
 import { EvidenceLinksField } from '../components/EvidenceLinksField'
 import { Modal } from '../components/Modal'
 import { PageHeader } from '../components/PageHeader'
 import { StatusPill } from '../components/StatusPill'
 import { StepBuilder } from '../components/StepBuilder'
 import { TagInput, TagList } from '../components/TagInput'
+import { CommentsPanel } from '../components/CommentsPanel'
 import { useConfirm } from '../context/useConfirm'
 import { useToast } from '../context/useToast'
 import { useUser } from '../context/UserContext'
@@ -15,6 +15,8 @@ import { useTeamMembers } from '../hooks/useTeamMembers'
 import { useTestCases } from '../hooks/useTestCases'
 import { useActivity } from '../hooks/useActivity'
 import { useSharedSteps } from '../hooks/useSharedSteps'
+import { useProjects } from '../hooks/useProjects'
+import { getProjectMembers } from '../utils/projectMembers'
 import { describeTestCaseChanges, historyEntry, withHistory } from '../utils/history'
 import { newId } from '../utils/id'
 import { STATUS_TONE, TEST_STATUSES } from '../utils/status'
@@ -33,9 +35,13 @@ export function TestCaseDetailPage() {
   const { testCases, updateTestCase, removeTestCase } = useTestCases(projectId)
   const { bugs, addBug } = useBugs(projectId)
   const { members } = useTeamMembers()
+  const { projects } = useProjects()
   const { activities } = useActivity()
   const { sharedSteps } = useSharedSteps(projectId)
   const navigate = useNavigate()
+
+  // Assignee options are scoped to people attached to this project (memberIds)
+  const assignableMembers = getProjectMembers(members, projects.find((p) => p.id === projectId))
   const confirm = useConfirm()
   const toast = useToast()
 
@@ -143,6 +149,7 @@ export function TestCaseDetailPage() {
   return (
     <>
       <PageHeader
+        backTo={`/projects/${projectId}/test-cases`}
         title={tc.title}
         description={tc.module ? `Module: ${tc.module}` : 'No module'}
         action={
@@ -455,7 +462,10 @@ export function TestCaseDetailPage() {
               <label>Assignee
                 <select value={form.assignee} onChange={set('assignee')}>
                   <option value="">Unassigned</option>
-                  {members.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
+                  {assignableMembers.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
+                  {form.assignee && !assignableMembers.some((m) => m.name === form.assignee) && (
+                    <option value={form.assignee}>{form.assignee} (not on project)</option>
+                  )}
                 </select>
               </label>
             </div>

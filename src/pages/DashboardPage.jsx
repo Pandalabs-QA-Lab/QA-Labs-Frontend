@@ -1,12 +1,14 @@
-import { useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { useMemo, useRef, useEffect, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { motion, useReducedMotion, useInView, animate } from 'motion/react'
+import { Modal } from '../components/Modal'
 import { PageHeader } from '../components/PageHeader'
 import { StatusPill } from '../components/StatusPill'
 import { useUser } from '../context/UserContext'
 import { useProjects } from '../hooks/useProjects'
 import { useActivity } from '../hooks/useActivity'
 import { useWorkspaceData } from '../hooks/useWorkspaceData'
-import { getCachedProjectData } from '../utils/workspaceCache'
+import { getBugs, getTestCases, getTestRuns, getMilestones, getTestPlans } from '../utils/storage'
 import { ArrowRightIcon } from '../components/Icons'
 import { getProjectReportMetrics, isOpenBug } from '../utils/reportMetrics'
 import { getMilestoneMetrics } from '../utils/planMetrics'
@@ -23,10 +25,37 @@ function QuickActionIcon({ name }) {
   return <svg {...common}>{paths[name]}</svg>
 }
 
+/** Animated number that counts up from 0 the first time it scrolls into view. */
+function CountUp({ value, suffix = '' }) {
+  const reduce = useReducedMotion()
+  const ref = useRef(null)
+  const inView = useInView(ref, { once: true, amount: 0.5 })
+  const [display, setDisplay] = useState(0)
+
+  useEffect(() => {
+    if (reduce || !inView) return undefined
+    const controls = animate(0, value, {
+      duration: 0.9,
+      ease: [0.22, 1, 0.36, 1],
+      onUpdate: (v) => setDisplay(Math.round(v)),
+    })
+    return () => controls.stop()
+  }, [inView, value, reduce])
+
+  // Reduced motion (or before first count) shows the final value directly.
+  return <span ref={ref}>{reduce ? value : display}{suffix}</span>
+}
+
 export function DashboardPage() {
   const { user } = useUser()
   const { projects } = useProjects()
   const { activities: allActivities } = useActivity()
+  const navigate = useNavigate()
+
+  // Global quick actions ("Add test case" / "Log bug") prompt for a project
+  // first, then deep-link into it with a query flag that auto-opens the form.
+  const [isProjectModalOpen, setIsProjectModalOpen] = useState(false)
+  const [quickActionType, setQuickActionType] = useState('') // 'test-cases' | 'bugs'
   // Warm the cache for every project so the aggregate metrics below are correct
   // even before the user opens each project. Bumps as each project's data lands.
   const dataVersion = useWorkspaceData(projects)
@@ -37,7 +66,9 @@ export function DashboardPage() {
 
   const enriched = useMemo(() => {
     return projects.map((p) => {
-      const { testCases: cases, bugs, runs } = getCachedProjectData(p.id)
+      const cases = getTestCases(p.id)
+      const bugs = getBugs(p.id)
+      const runs = getTestRuns(p.id)
       const metrics = getProjectReportMetrics({ project: p, testCases: cases, bugs, runs })
       return { ...p, cases: metrics.total, openBugs: metrics.openBugs, passRate: metrics.passRate, latestRun: metrics.latestRun }
     })
@@ -53,11 +84,23 @@ export function DashboardPage() {
   }, [enriched])
 
   const metrics = useMemo(() => [
-    { label: 'Projects', value: projects.length, tone: 'neutral' },
-    { label: 'Test cases', value: totalCases, tone: 'neutral' },
-    { label: 'Bugs open', value: totalOpenBugs, tone: totalOpenBugs > 0 ? 'danger' : 'neutral' },
-    { label: 'Pass rate', value: `${avgPassRate}%`, tone: avgPassRate >= 70 ? 'success' : avgPassRate >= 50 ? 'warning' : 'danger' },
+    { label: 'Projects', value: projects.length, suffix: '', tone: 'neutral' },
+    { label: 'Test cases', value: totalCases, suffix: '', tone: 'neutral' },
+    { label: 'Bugs open', value: totalOpenBugs, suffix: '', tone: totalOpenBugs > 0 ? 'danger' : 'neutral' },
+    { label: 'Pass rate', value: avgPassRate, suffix: '%', tone: avgPassRate >= 70 ? 'success' : avgPassRate >= 50 ? 'warning' : 'danger' },
   ], [projects.length, totalCases, totalOpenBugs, avgPassRate])
+
+  // ── Motion variants (respect prefers-reduced-motion) ──────────
+  const reduce = useReducedMotion()
+  const fadeUp = {
+    hidden: { opacity: 0, y: reduce ? 0 : 18 },
+    show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] } },
+  }
+  const stagger = {
+    hidden: {},
+    show: { transition: { staggerChildren: reduce ? 0 : 0.07 } },
+  }
+  const inViewOpts = { once: true, amount: 0.2 }
 
   // Aggregate stats across all projects
   const { allBugs, allBlockers, allRuns } = useMemo(() => {
@@ -66,8 +109,9 @@ export function DashboardPage() {
     const runsList = []
 
     projects.forEach((p) => {
-      const { testCases: pCases, bugs: pBugs, runs: pRunsRaw } = getCachedProjectData(p.id)
-      const pRuns = pRunsRaw.filter((r) => !r.projectId || r.projectId === p.id)
+      const pCases = getTestCases(p.id)
+      const pBugs = getBugs(p.id)
+      const pRuns = getTestRuns(p.id).filter((r) => !r.projectId || r.projectId === p.id)
 
       bugsList.push(...pBugs.map(b => ({ ...b, projectId: p.id, projectName: p.name })))
       blockersList.push(...pCases.filter(c => normalizeTestStatus(c.status) === 'Blocker').map(c => ({ ...c, projectId: p.id, projectName: p.name })))
@@ -101,7 +145,9 @@ export function DashboardPage() {
   const upcomingMilestones = useMemo(() => {
     const items = []
     projects.forEach((p) => {
-      const { milestones, testPlans: plans, runs } = getCachedProjectData(p.id)
+      const milestones = getMilestones(p.id)
+      const plans = getTestPlans(p.id)
+      const runs = getTestRuns(p.id)
       milestones
         .filter((m) => m.status !== 'Completed')
         .forEach((milestone) => {
@@ -159,17 +205,35 @@ export function DashboardPage() {
       />
 
       {/* Main Metric Cards */}
-      <section className="metric-grid" aria-label="QA metrics">
+      <motion.section
+        className="metric-grid"
+        aria-label="QA metrics"
+        variants={stagger}
+        initial="hidden"
+        animate="show"
+      >
         {metrics.map((m) => (
-          <article className={`metric-card metric-card--${m.tone}`} key={m.label}>
+          <motion.article
+            className={`metric-card metric-card--${m.tone}`}
+            key={m.label}
+            variants={fadeUp}
+            whileHover={reduce ? undefined : { y: -1 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 22 }}
+          >
             <span>{m.label}</span>
-            <strong>{m.value}</strong>
-          </article>
+            <strong><CountUp value={m.value} suffix={m.suffix} /></strong>
+          </motion.article>
         ))}
-      </section>
+      </motion.section>
 
       {/* Projects Overview */}
-      <section className="panel mt-lg">
+      <motion.section
+        className="panel mt-lg"
+        variants={fadeUp}
+        initial="hidden"
+        whileInView="show"
+        viewport={inViewOpts}
+      >
         <div className="section-header">
           <h2>Projects at a glance</h2>
           <Link to="/projects" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -243,32 +307,47 @@ export function DashboardPage() {
             </article>
           ))}
         </div>
-      </section>
+      </motion.section>
 
       {/* Quick Actions */}
-      <section className="quick-actions mt-lg mb-lg">
+      <motion.section
+        className="quick-actions mt-lg mb-lg"
+        variants={fadeUp}
+        initial="hidden"
+        whileInView="show"
+        viewport={inViewOpts}
+      >
         <Link to="/projects" className="quick-action-card">
           <span className="qa-icon"><QuickActionIcon name="project" /></span>
           <span>New project</span>
         </Link>
-        <Link to={`/projects/${enriched[0]?.id}/test-cases`} className="quick-action-card">
+        <button
+          type="button"
+          className="quick-action-card"
+          onClick={() => { setQuickActionType('test-cases'); setIsProjectModalOpen(true) }}
+        >
           <span className="qa-icon"><QuickActionIcon name="case" /></span>
           <span>Add test case</span>
-        </Link>
-        <Link to={`/projects/${enriched[0]?.id}/bugs`} className="quick-action-card">
+        </button>
+        <button
+          type="button"
+          className="quick-action-card"
+          onClick={() => { setQuickActionType('bugs'); setIsProjectModalOpen(true) }}
+        >
           <span className="qa-icon"><QuickActionIcon name="bug" /></span>
           <span>Log bug</span>
-        </Link>
+        </button>
         <Link to="/reports" className="quick-action-card">
           <span className="qa-icon"><QuickActionIcon name="report" /></span>
           <span>View reports</span>
         </Link>
-      </section>
+      </motion.section>
 
-      {/* The Four Insight Blocks */}
+      {/* The Four Insight Blocks — each panel reveals independently so those
+          already on screen at load animate in immediately (not only on scroll). */}
       <div className="dashboard-details-grid">
         {/* Recent Activity */}
-        <section className="panel dashboard-detail-panel">
+        <motion.section className="panel dashboard-detail-panel" variants={fadeUp} initial="hidden" whileInView="show" viewport={inViewOpts}>
           <div className="section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h2>Recent activity</h2>
             <Link className="text-link" to="/activity" style={{ fontSize: '12.5px' }}>
@@ -293,10 +372,10 @@ export function DashboardPage() {
               ))}
             </div>
           )}
-        </section>
+        </motion.section>
 
         {/* High-priority bugs */}
-        <section className="panel dashboard-detail-panel">
+        <motion.section className="panel dashboard-detail-panel" variants={fadeUp} initial="hidden" whileInView="show" viewport={inViewOpts}>
           <div className="section-header">
             <h2>High-priority bugs</h2>
             {activeBugs.length > 0 && (
@@ -325,10 +404,10 @@ export function DashboardPage() {
               ))}
             </div>
           )}
-        </section>
+        </motion.section>
 
         {/* Recent Runs */}
-        <section className="panel dashboard-detail-panel">
+        <motion.section className="panel dashboard-detail-panel" variants={fadeUp} initial="hidden" whileInView="show" viewport={inViewOpts}>
           <div className="section-header">
             <h2>Recent runs</h2>
           </div>
@@ -353,10 +432,10 @@ export function DashboardPage() {
               })}
             </div>
           )}
-        </section>
+        </motion.section>
 
         {/* Active Blockers */}
-        <section className="panel dashboard-detail-panel">
+        <motion.section className="panel dashboard-detail-panel" variants={fadeUp} initial="hidden" whileInView="show" viewport={inViewOpts}>
           <div className="section-header">
             <h2>Active blockers</h2>
             <StatusPill tone={allBlockers.length > 0 ? 'blocker' : 'passed'}>
@@ -381,11 +460,18 @@ export function DashboardPage() {
               ))}
             </div>
           )}
-        </section>
+        </motion.section>
       </div>
 
       {upcomingMilestones.length > 0 && (
-        <section className="panel dashboard-detail-panel" style={{ marginTop: 16 }}>
+        <motion.section
+          className="panel dashboard-detail-panel"
+          style={{ marginTop: 16 }}
+          variants={fadeUp}
+          initial="hidden"
+          whileInView="show"
+          viewport={inViewOpts}
+        >
           <div className="section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h2>Release milestones</h2>
             <StatusPill tone="neutral">{upcomingMilestones.length} active</StatusPill>
@@ -411,7 +497,43 @@ export function DashboardPage() {
               </div>
             ))}
           </div>
-        </section>
+        </motion.section>
+      )}
+
+      {isProjectModalOpen && (
+        <Modal
+          title={quickActionType === 'test-cases' ? 'Add test case' : 'Log bug'}
+          onClose={() => setIsProjectModalOpen(false)}
+          closeOnBackdrop
+          style={{ maxWidth: 440 }}
+        >
+          <div className="project-pick-panel">
+            <p className="project-pick-intro">
+              Choose a project to {quickActionType === 'test-cases' ? 'add a test case to' : 'log a bug for'}.
+            </p>
+            <div className="project-pick-list">
+              {enriched.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className="project-pick"
+                  onClick={() => {
+                    setIsProjectModalOpen(false)
+                    const suffix = quickActionType === 'test-cases' ? 'test-cases?add=true' : 'bugs?log=true'
+                    navigate(`/projects/${p.id}/${suffix}`)
+                  }}
+                >
+                  <span className="project-pick-icon"><QuickActionIcon name="project" /></span>
+                  <span className="project-pick-body">
+                    <span className="project-pick-name">{p.name}</span>
+                    {p.description && <span className="project-pick-desc">{p.description}</span>}
+                  </span>
+                  <span className="project-pick-arrow"><ArrowRightIcon width={16} height={16} /></span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </Modal>
       )}
     </>
   )
