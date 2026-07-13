@@ -5,6 +5,7 @@ import { Modal } from './Modal'
 import { parseTestCaseFile, rowToTestCase } from '../utils/parseTestCaseFile'
 import { CheckIcon, XIcon, DownloadIcon } from './Icons'
 import { addActivity } from '../utils/activity'
+import { openGooglePicker, downloadDriveFile } from '../utils/googlePicker'
 
 const ACCEPT = '.xlsx,.xls,.csv'
 
@@ -103,12 +104,23 @@ function parseGoogleSheetUrl(url) {
   return { sheetId, gid }
 }
 
-function toCsvExportUrl(sheetId, gid) {
-  return `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`
+function toXlsxExportUrl(sheetId) {
+  // XLSX export fetches ALL sheets so multi-sheet → folder detection works
+  return `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=xlsx`
 }
 
-function textToBuffer(text) {
-  return new TextEncoder().encode(text).buffer
+// ── Google Drive logo (official multicolor mark) ────────────────────────────
+function GoogleDriveLogo({ size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 87.3 78" aria-hidden focusable="false">
+      <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da" />
+      <path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47" />
+      <path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335" />
+      <path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d" />
+      <path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc" />
+      <path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00" />
+    </svg>
+  )
 }
 
 // ── Stepper indicator ──────────────────────────────────────────────────────
@@ -196,7 +208,7 @@ function GoogleSheetImport({ onCsvParsed }) {
     setLoading(true)
 
     try {
-      const exportUrl = toCsvExportUrl(parsed.sheetId, parsed.gid)
+      const exportUrl = toXlsxExportUrl(parsed.sheetId)
       const res = await fetch(exportUrl)
 
       if (!res.ok) {
@@ -209,16 +221,16 @@ function GoogleSheetImport({ onCsvParsed }) {
         return
       }
 
-      const csvText = await res.text()
+      const buffer = await res.arrayBuffer()
 
-      if (!csvText || csvText.trim().length === 0) {
-        setError('The sheet appears to be empty. Please check the content and try again.')
+      if (!buffer || buffer.byteLength === 0) {
+        setError('The spreadsheet appears to be empty. Please check the content and try again.')
         setLoading(false)
         return
       }
 
-      const buffer = textToBuffer(csvText)
-      onCsvParsed(buffer, 'google-sheet.csv')
+      // Pass as .xlsx so the parser detects all sheets and maps each to a folder
+      onCsvParsed(buffer, 'google-sheet.xlsx')
     } catch {
       setError(
         'Could not fetch the sheet. This sheet must be public or published to the web. ' +
@@ -264,7 +276,73 @@ function GoogleSheetImport({ onCsvParsed }) {
       <div className="bulk-template-row">
         <p className="bulk-template-hint">
           Paste a link to a <em>public</em> Google Sheet. The sheet must be set to
-          "Anyone with the link" or published to the web.
+          "Anyone with the link" or published to the web. Multiple sheets will each become a folder.
+        </p>
+        <button className="secondary-button" type="button" onClick={downloadTemplate}>
+          <DownloadIcon width={14} height={14} /> Download template
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Google Drive import ─────────────────────────────────────────────────────
+function GoogleDriveImport({ onCsvParsed }) {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSelect = () => {
+    setError('')
+    openGooglePicker(
+      async (file, accessToken) => {
+        setLoading(true)
+        try {
+          const buffer = await downloadDriveFile(file.id, file.mimeType, accessToken)
+          onCsvParsed(buffer, file.name)
+        } catch (err) {
+          setError(err.message || 'Failed to download selected file.')
+        } finally {
+          setLoading(false)
+        }
+      },
+      (errMessage) => {
+        setError(errMessage)
+      },
+      { mode: 'spreadsheets' }
+    )
+  }
+
+  return (
+    <div className="bulk-upload-step">
+      <div className="drive-zone">
+        <span className="drive-zone-logo" aria-hidden>
+          <GoogleDriveLogo size={34} />
+        </span>
+        <div>
+          <p className="drive-zone-title">Import from Google Drive</p>
+          <p className="drive-zone-sub">
+            Pick any Google Sheet, Excel, or CSV file from your Drive. It’s downloaded
+            and parsed securely — nothing is stored.
+          </p>
+        </div>
+        <button className="drive-btn" type="button" disabled={loading} onClick={handleSelect}>
+          {loading ? (
+            <>
+              <span className="gs-spinner" />
+              Downloading…
+            </>
+          ) : (
+            <>
+              <GoogleDriveLogo size={18} />
+              Select from Drive
+            </>
+          )}
+        </button>
+      </div>
+      {error && <p className="bulk-file-error" style={{ textAlign: 'center' }}>{error}</p>}
+      <div className="bulk-template-row">
+        <p className="bulk-template-hint">
+          Required columns: <em>Module, Test Case Title, Test Steps, Expected Result</em>
         </p>
         <button className="secondary-button" type="button" onClick={downloadTemplate}>
           <DownloadIcon width={14} height={14} /> Download template
@@ -294,16 +372,17 @@ function DuplicateBadge({ duplicate }) {
 
 // ── Main modal ─────────────────────────────────────────────────────────────
 const IMPORT_TABS = [
-  { key: 'file', label: 'File upload' },
-  { key: 'google', label: 'Google Sheet' },
+  { key: 'file', label: 'Browse local' },
+  { key: 'drive', label: 'Google Drive' },
+  { key: 'google', label: 'URL' },
 ]
 
 export function BulkUploadModal({ existingTestCases = [], onImport, onUpdate, onClose }) {
   const { projectId } = useParams()
-  const [step, setStep]       = useState(0)   // 0=upload 1=preview 2=done
-  const [rows, setRows]       = useState([])
-  const [filename, setFilename] = useState('')
-  const [summary, setSummary] = useState(null)
+  const [step, setStep]           = useState(0)   // 0=upload 1=preview 2=done
+  const [rows, setRows]           = useState([])
+  const [filename, setFilename]   = useState('')
+  const [summary, setSummary]     = useState(null)
   const [importTab, setImportTab] = useState('file')
   const [isMultiSheet, setIsMultiSheet] = useState(false)
   const [sheetNames, setSheetNames]     = useState([])
@@ -411,7 +490,7 @@ export function BulkUploadModal({ existingTestCases = [], onImport, onUpdate, on
     setStep(2)
   }
 
-  const reset = () => { setStep(0); setRows([]); setFilename(''); setSummary(null); setImportTab('file') }
+  const reset = () => { setStep(0); setRows([]); setFilename(''); setSummary(null); setImportTab('file'); setIsMultiSheet(false); setSheetNames([]) }
 
   // Widen modal during preview
   const modalStyle = step === 1 ? { maxWidth: 1040 } : {}
@@ -437,7 +516,8 @@ export function BulkUploadModal({ existingTestCases = [], onImport, onUpdate, on
                   onClick={() => setImportTab(tab.key)}
                 >
                   {tab.key === 'file' && <span className="bulk-import-tab-icon" aria-hidden>📁</span>}
-                  {tab.key === 'google' && <span className="bulk-import-tab-icon" aria-hidden>📊</span>}
+                  {tab.key === 'drive' && <span className="bulk-import-tab-icon" aria-hidden>☁️</span>}
+                  {tab.key === 'google' && <span className="bulk-import-tab-icon" aria-hidden>🔗</span>}
                   {tab.label}
                 </button>
               ))}
@@ -445,6 +525,7 @@ export function BulkUploadModal({ existingTestCases = [], onImport, onUpdate, on
 
             <div role="tabpanel" id={`bulk-panel-${importTab}`}>
               {importTab === 'file' && <DropZone onFile={handleFile} />}
+              {importTab === 'drive' && <GoogleDriveImport onCsvParsed={handleFile} />}
               {importTab === 'google' && <GoogleSheetImport onCsvParsed={handleFile} />}
             </div>
           </>
@@ -520,7 +601,7 @@ export function BulkUploadModal({ existingTestCases = [], onImport, onUpdate, on
                             onChange={(e) => setRowAction(row.rowNum, e.target.value)}
                           >
                             {row.duplicate && <option value="skip">Skip</option>}
-                            {row.duplicate?.type === 'existing' && <option value="update">Update existing</option>}
+                            {row.duplicate?.type === 'existing' && <option value="update">Update existing (move to folder)</option>}
                             <option value="create">Import as new</option>
                             {!row.duplicate && <option value="skip">Skip</option>}
                           </select>

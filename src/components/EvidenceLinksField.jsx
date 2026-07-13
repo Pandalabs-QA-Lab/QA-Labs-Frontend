@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { newId } from '../utils/id'
+import { openGooglePicker } from '../utils/googlePicker'
 
 function isValidGoogleDriveUrl(url) {
   const trimmed = (url || '').trim()
@@ -29,6 +30,29 @@ export function EvidenceLinksField({ evidenceLinks = [], onChange, currentUser, 
   const [url, setUrl] = useState('')
   const [label, setLabel] = useState('')
   const [error, setError] = useState('')
+
+  const handleGooglePicker = () => {
+    setError('')
+    // Accumulate across the synchronous per-file callbacks so multi-select
+    // doesn't drop all but the last file (each call re-sends the full list).
+    const added = []
+    openGooglePicker(
+      (file) => {
+        added.push({
+          id: newId(),
+          url: file.url,
+          label: file.name || 'Google Drive file',
+          addedAt: new Date().toISOString(),
+          addedBy: currentUser || 'Unknown'
+        })
+        onChange([...evidenceLinks, ...added])
+      },
+      (errMessage) => {
+        setError(errMessage)
+      },
+      { mode: 'all', multiple: true }
+    )
+  }
 
   const handleAdd = (e) => {
     e.preventDefault()
@@ -145,9 +169,20 @@ export function EvidenceLinksField({ evidenceLinks = [], onChange, currentUser, 
             >
               Add Link
             </button>
+            <button
+              type="button"
+              className="primary-button"
+              onClick={handleGooglePicker}
+              style={{ height: '36px', display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '2px' }}>
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              Upload / Add file
+            </button>
           </div>
           <span className="hint" style={{ fontSize: '0.8rem', color: 'var(--text-muted, #5f6368)' }}>
-            Paste Google Drive links for screenshots, videos, logs, or documents. Only drive.google.com or docs.google.com links are accepted.
+            Upload screenshots, videos, logs, or documents from your computer — or pick an existing file from Google Drive. You can also paste a Drive link above.
           </span>
           {error && (
             <p className="attachment-error" style={{ color: 'var(--danger-color, #d93025)', margin: '4px 0 0 0' }}>

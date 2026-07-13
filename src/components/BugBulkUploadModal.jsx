@@ -5,6 +5,7 @@ import { CheckIcon, XIcon, DownloadIcon } from './Icons'
 import { parseBugFileBuffer, rowToBug } from '../utils/parseBugFile'
 import { downloadBugTemplate } from '../utils/export'
 import { addActivity } from '../utils/activity'
+import { openGooglePicker, downloadDriveFile } from '../utils/googlePicker'
 
 const ACCEPT = '.xlsx,.xls,.csv'
 
@@ -70,6 +71,20 @@ function resolveLinkedTc(linkedTcId, testCases) {
     (t) => (t.sourceTcId && norm(t.sourceTcId) === norm(linkedTcId)) || norm(t.title) === norm(linkedTcId)
   )
   return tc ? tc.id : ''
+}
+
+// ── Google Drive logo (official multicolor mark) ──────────────────────────
+function GoogleDriveLogo({ size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 87.3 78" aria-hidden focusable="false">
+      <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da" />
+      <path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47" />
+      <path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335" />
+      <path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d" />
+      <path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc" />
+      <path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00" />
+    </svg>
+  )
 }
 
 // ── Stepper ───────────────────────────────────────────────────────────────
@@ -222,6 +237,72 @@ function GoogleSheetImport({ onCsvParsed }) {
   )
 }
 
+// ── Google Drive import ─────────────────────────────────────────────────────
+function GoogleDriveImport({ onCsvParsed }) {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSelect = () => {
+    setError('')
+    openGooglePicker(
+      async (file, accessToken) => {
+        setLoading(true)
+        try {
+          const buffer = await downloadDriveFile(file.id, file.mimeType, accessToken)
+          onCsvParsed(buffer, file.name)
+        } catch (err) {
+          setError(err.message || 'Failed to download selected file.')
+        } finally {
+          setLoading(false)
+        }
+      },
+      (errMessage) => {
+        setError(errMessage)
+      },
+      { mode: 'spreadsheets' }
+    )
+  }
+
+  return (
+    <div className="bulk-upload-step">
+      <div className="drive-zone">
+        <span className="drive-zone-logo" aria-hidden>
+          <GoogleDriveLogo size={34} />
+        </span>
+        <div>
+          <p className="drive-zone-title">Import from Google Drive</p>
+          <p className="drive-zone-sub">
+            Pick any Google Sheet, Excel, or CSV file from your Drive. It’s downloaded
+            and parsed securely — nothing is stored.
+          </p>
+        </div>
+        <button className="drive-btn" type="button" disabled={loading} onClick={handleSelect}>
+          {loading ? (
+            <>
+              <span className="gs-spinner" />
+              Downloading…
+            </>
+          ) : (
+            <>
+              <GoogleDriveLogo size={18} />
+              Select from Drive
+            </>
+          )}
+        </button>
+      </div>
+      {error && <p className="bulk-file-error" style={{ textAlign: 'center' }}>{error}</p>}
+      <div className="bulk-template-row">
+        <p className="bulk-template-hint">
+          Required columns: <em>Title, Description, Severity</em>
+        </p>
+        <button className="secondary-button" type="button" onClick={downloadBugTemplate}>
+          <DownloadIcon width={14} height={14} /> Download template
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Badges ────────────────────────────────────────────────────────────────
 function ValidationBadge({ errors }) {
   if (errors.length === 0) return <span className="vbadge vbadge--valid"><CheckIcon width={12} height={12} /> Valid</span>
@@ -240,8 +321,9 @@ function DuplicateBadge({ duplicate }) {
 
 // ── Main modal ────────────────────────────────────────────────────────────
 const IMPORT_TABS = [
-  { key: 'file', label: 'File upload' },
-  { key: 'google', label: 'Google Sheet' },
+  { key: 'file', label: 'Browse local' },
+  { key: 'drive', label: 'Google Drive' },
+  { key: 'google', label: 'URL' },
 ]
 
 export function BugBulkUploadModal({ existingBugs = [], testCases = [], onImport, onClose }) {
@@ -328,13 +410,15 @@ export function BugBulkUploadModal({ existingBugs = [], testCases = [], onImport
                   onClick={() => setImportTab(tab.key)}
                 >
                   {tab.key === 'file' && <span className="bulk-import-tab-icon" aria-hidden>📁</span>}
-                  {tab.key === 'google' && <span className="bulk-import-tab-icon" aria-hidden>📊</span>}
+                  {tab.key === 'drive' && <span className="bulk-import-tab-icon" aria-hidden>☁️</span>}
+                  {tab.key === 'google' && <span className="bulk-import-tab-icon" aria-hidden>🔗</span>}
                   {tab.label}
                 </button>
               ))}
             </div>
             <div role="tabpanel">
               {importTab === 'file' && <DropZone onFile={handleFile} />}
+              {importTab === 'drive' && <GoogleDriveImport onCsvParsed={handleFile} />}
               {importTab === 'google' && <GoogleSheetImport onCsvParsed={handleFile} />}
             </div>
           </>
