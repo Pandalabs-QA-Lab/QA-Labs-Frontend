@@ -4,6 +4,7 @@ import { useTeamMembers } from '../hooks/useTeamMembers'
 import { useRequirements } from '../hooks/useRequirements'
 import { useTestCases } from '../hooks/useTestCases'
 import { useToast } from '../context/useToast'
+import { XIcon } from './Icons'
 
 const STEPS = [
   { id: 'project', title: 'Create your first project', description: 'Projects group test cases, bugs, and runs together.' },
@@ -79,18 +80,58 @@ function ProjectStep({ onComplete }) {
   )
 }
 
-function TeamStep({ onComplete }) {
-  const { members, addMember } = useTeamMembers()
+function TeamStep({ onComplete, projectId }) {
+  const { members, addMember, removeMember } = useTeamMembers()
+  const { projects, updateProject } = useProjects()
   const toast = useToast()
   const [name, setName] = useState('')
   const [role, setRole] = useState('Tester')
 
-  const handleAdd = (e) => {
+  const project = projects.find((p) => p.id === projectId)
+  const memberIds = project?.memberIds ?? []
+
+  const handleAdd = async (e) => {
     e.preventDefault()
     if (!name.trim()) return
-    addMember(name.trim(), role)
-    toast.success(`${name.trim()} added as ${role}`)
-    setName('')
+    try {
+      const newMember = await addMember(name.trim(), role)
+      toast.success(`${name.trim()} added as ${role}`)
+      setName('')
+
+      // Automatically assign the newly added member to this project
+      if (project) {
+        updateProject({
+          ...project,
+          memberIds: [...memberIds, newMember.id],
+        })
+      }
+    } catch (err) {
+      toast.error(err.message || 'Failed to add member')
+    }
+  }
+
+  const toggleAssign = (mId) => {
+    if (!project) return
+    const isAssigned = memberIds.includes(mId)
+    const nextIds = isAssigned
+      ? memberIds.filter((id) => id !== mId)
+      : [...memberIds, mId]
+    updateProject({ ...project, memberIds: nextIds })
+  }
+
+  const handleDelete = async (mId, mName) => {
+    try {
+      await removeMember(mId)
+      if (project && memberIds.includes(mId)) {
+        updateProject({
+          ...project,
+          memberIds: memberIds.filter((id) => id !== mId),
+        })
+      }
+      toast.success(`${mName} removed from workspace`)
+    } catch (err) {
+      toast.error(err.message || 'Failed to remove member')
+    }
   }
 
   return (
@@ -121,14 +162,43 @@ function TeamStep({ onComplete }) {
       </form>
 
       {members.length > 0 && (
-        <div className="onboarding-member-list">
-          {members.map((m) => (
-            <div key={m.id} className="onboarding-member">
-              <span className="onboarding-member-avatar">{m.name.charAt(0).toUpperCase()}</span>
-              <span className="onboarding-member-name">{m.name}</span>
-              <span className="onboarding-member-role">{m.role}</span>
-            </div>
-          ))}
+        <div className="onboarding-member-list" style={{ maxHeight: '200px', overflowY: 'auto' }}>
+          <div style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--text-soft)', padding: '4px 8px', borderBottom: '1px solid var(--border)', marginBottom: '4px' }}>
+            Assign to this project:
+          </div>
+          {members.map((m) => {
+            const isAssigned = memberIds.includes(m.id)
+            return (
+              <div key={m.id} className="onboarding-member" style={{ gap: '12px' }}>
+                <input
+                  type="checkbox"
+                  checked={isAssigned}
+                  onChange={() => toggleAssign(m.id)}
+                  style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                />
+                <span className="onboarding-member-avatar">{m.name.charAt(0).toUpperCase()}</span>
+                <span className="onboarding-member-name" style={{ flexGrow: 1 }}>{m.name}</span>
+                <span className="onboarding-member-role" style={{ marginLeft: 0, marginRight: '8px' }}>{m.role}</span>
+                <button
+                  type="button"
+                  onClick={() => handleDelete(m.id, m.name)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--danger)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '4px',
+                    borderRadius: '4px',
+                  }}
+                  title={`Remove ${m.name} from workspace`}
+                >
+                  <XIcon width={12} height={12} />
+                </button>
+              </div>
+            )
+          })}
         </div>
       )}
 
@@ -241,27 +311,141 @@ function RequirementsStep({ onComplete, projectId }) {
 }
 
 function RunStep({ onComplete }) {
+  const checklistItems = [
+    {
+      title: 'Add test cases',
+      desc: 'Create manual steps & outcomes for structured testing.',
+      icon: (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+          <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+          <path d="m9 14 2 2 4-4" />
+        </svg>
+      ),
+    },
+    {
+      title: 'Link requirements',
+      desc: 'Map cases to specs for clear coverage verification.',
+      icon: (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+        </svg>
+      ),
+    },
+    {
+      title: 'Create a test plan',
+      desc: 'Define milestones and plan release targets.',
+      icon: (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+          <line x1="4" x2="4" y1="22" y2="15" />
+        </svg>
+      ),
+    },
+    {
+      title: 'Run & log results',
+      desc: 'Execute tests live and record issues in real time.',
+      icon: (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polygon points="6 3 20 12 6 21 6 3" />
+        </svg>
+      ),
+    },
+    {
+      title: 'Check readiness matrix',
+      desc: 'See test coverage statistics to approve delivery.',
+      icon: (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <rect width="7" height="9" x="3" y="3" rx="1" />
+          <rect width="7" height="5" x="14" y="3" rx="1" />
+          <rect width="7" height="9" x="14" y="12" rx="1" />
+          <rect width="7" height="5" x="3" y="16" rx="1" />
+        </svg>
+      ),
+    },
+  ]
+
   return (
-    <div className="onboarding-final">
-      <div className="onboarding-final-icon">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <div className="onboarding-final" style={{ width: '100%', maxWidth: '620px', margin: '0 auto' }}>
+      <div className="onboarding-final-icon" style={{ background: 'var(--accent-soft)', color: 'var(--accent)', animation: 'pulse 2s infinite alternate', width: '60px', height: '60px', borderRadius: '50%', display: 'grid', placeItems: 'center', margin: '0 auto 16px' }}>
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
           <path d="m9 11 3 3L22 4" />
         </svg>
       </div>
-      <h3>You're all set!</h3>
-      <p>
-        Your project is ready. Here's what to do next:
+      <h3 style={{ fontSize: '22px', fontWeight: '800', fontFamily: 'var(--heading)', color: 'var(--text-strong)', textAlign: 'center', marginBottom: '8px' }}>You're all set!</h3>
+      <p style={{ fontSize: '14px', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '24px' }}>
+        Your project space is initialized and ready. Here is your roadmap to success:
       </p>
-      <ol className="onboarding-checklist">
-        <li>Add test cases to your project</li>
-        <li>Link them to requirements</li>
-        <li>Create a test plan for your release</li>
-        <li>Start a test run and mark results</li>
-        <li>Check the coverage matrix to see readiness</li>
-      </ol>
-      <div className="onboarding-actions">
-        <button type="button" className="primary-button" onClick={onComplete}>
+
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+        gap: '8px',
+        marginBottom: '20px',
+        textAlign: 'left'
+      }}>
+        {checklistItems.map((item, index) => (
+          <div
+            key={index}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              padding: '8px 12px',
+              borderRadius: 'var(--radius-sm)',
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              boxShadow: 'var(--shadow-sm)',
+              transition: 'transform 0.2s ease, border-color 0.2s ease',
+              cursor: 'default',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-1px)'
+              e.currentTarget.style.borderColor = 'var(--accent)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'none'
+              e.currentTarget.style.borderColor = 'var(--border)'
+            }}
+          >
+            <div
+              style={{
+                width: '28px',
+                height: '28px',
+                borderRadius: '50%',
+                background: 'var(--soft-bg)',
+                color: 'var(--accent)',
+                display: 'grid',
+                placeItems: 'center',
+                flexShrink: 0,
+                border: '1.5px solid var(--border-strong)',
+                fontWeight: '700',
+                fontSize: '11px',
+              }}
+            >
+              {item.icon}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+              <div style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-strong)' }}>
+                {index + 1}. {item.title}
+              </div>
+              <div style={{ fontSize: '10.5px', color: 'var(--text-soft)', lineHeight: '1.3' }}>
+                {item.desc}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="onboarding-actions" style={{ justifyContent: 'center' }}>
+        <button
+          type="button"
+          className="primary-button"
+          onClick={onComplete}
+          style={{ padding: '10px 24px', fontSize: '14px', fontWeight: '700' }}
+        >
           Go to dashboard
         </button>
       </div>
@@ -338,7 +522,7 @@ export function OnboardingWizard({ onComplete }) {
 
             <StepIndicator current={step} total={STEPS.length} />
 
-            <div className="onboarding-body">
+            <div className="onboarding-body" style={{ maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' }}>
               {step === 0 && <ProjectStep {...stepProps} />}
               {step === 1 && <TeamStep {...stepProps} />}
               {step === 2 && <RequirementsStep {...stepProps} />}

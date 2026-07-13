@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { MantineProvider, createTheme } from '@mantine/core'
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Layout } from './components/Layout'
@@ -30,6 +31,28 @@ import { TestPlansPage } from './pages/TestPlansPage'
 import { ActivityPage } from './pages/ActivityPage'
 import { WorkspaceSettingsPage } from './pages/WorkspaceSettingsPage'
 import './App.css'
+
+const mantineTheme = createTheme({
+  primaryColor: 'accent',
+  colors: {
+    accent: [
+      '#fff0f3',
+      '#ffe0e6',
+      '#ffc2cd',
+      '#ff93a6',
+      '#ff5f7d',
+      '#ff3962', // primary brand color (#FF3962)
+      '#ed1b47',
+      '#c70e35',
+      '#a40728',
+      '#85011c',
+    ],
+  },
+  fontFamily: 'inherit',
+  headings: { fontFamily: 'inherit' },
+  defaultRadius: 'md',
+  cursorType: 'pointer',
+})
 
 const appRoutes = (
   <Routes>
@@ -143,13 +166,15 @@ function OnboardingGate() {
 
 export function App() {
   return (
-    <ToastProvider>
-      <ConfirmProvider>
-        <AuthProvider>
-          <AppShell />
-        </AuthProvider>
-      </ConfirmProvider>
-    </ToastProvider>
+    <MantineProvider theme={mantineTheme} forceColorScheme="light">
+      <ToastProvider>
+        <ConfirmProvider>
+          <AuthProvider>
+            <AppShell />
+          </AuthProvider>
+        </ConfirmProvider>
+      </ToastProvider>
+    </MantineProvider>
   )
 }
 

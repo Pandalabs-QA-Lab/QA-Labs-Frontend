@@ -1,6 +1,25 @@
 import { useState } from 'react'
-import { XIcon, CheckIcon } from '../components/Icons'
 import { useNavigate, useParams, Link } from 'react-router-dom'
+import {
+  TextInput,
+  Textarea,
+  Button,
+  Group,
+  Stack,
+  Card,
+  Title,
+  Text,
+  Badge,
+  Avatar,
+  Select,
+  ActionIcon,
+  Divider,
+  CopyButton,
+  Tooltip,
+  Alert,
+  Timeline,
+} from '@mantine/core'
+import { XIcon, CheckIcon } from '../components/Icons'
 import { PageHeader } from '../components/PageHeader'
 import { useConfirm } from '../context/useConfirm'
 import { useToast } from '../context/useToast'
@@ -8,11 +27,20 @@ import { useProjects } from '../hooks/useProjects'
 import { useTeamMembers } from '../hooks/useTeamMembers'
 import { useActivity } from '../hooks/useActivity'
 import { useUserRole } from '../hooks/useUserRole'
+import { useTestCases } from '../hooks/useTestCases'
+import { useBugs } from '../hooks/useBugs'
+import { useTestRuns } from '../hooks/useTestRuns'
+import { getJiraSettings, saveJiraSettings } from '../utils/storage'
+import { isFirebaseEnabled } from '../utils/firebase'
+import { getOrCreateProjectInviteToken, revokeProjectInviteToken } from '../utils/remoteStorage'
 
 export function SettingsPage() {
   const { projectId } = useParams()
   const { projects, updateProject, removeProject, setPublicShare } = useProjects()
   const { members, addMember, updateMember } = useTeamMembers()
+  const { testCases } = useTestCases(projectId)
+  const { bugs } = useBugs(projectId)
+  const { runs } = useTestRuns(projectId)
   const { getActivitiesByProject } = useActivity()
   const { isLead } = useUserRole()
   const navigate = useNavigate()
@@ -24,7 +52,54 @@ export function SettingsPage() {
   const [description, setDescription] = useState(project?.description ?? '')
   const [newMemberName, setNewMemberName] = useState('')
   const [saved, setSaved] = useState(false)
+
+  // Jira integration settings
+  const [jiraSettings, setJiraSettings] = useState(() => getJiraSettings())
+  const [jiraSaved, setJiraSaved] = useState(false)
+  const [inviteLink, setInviteLink] = useState('')
+  const [inviteLoading, setInviteLoading] = useState(false)
   const [shareLoading, setShareLoading] = useState(false)
+
+  const shareLink = project?.publicShareToken
+    ? `${window.location.origin}${window.location.pathname}#/report/${project.publicShareToken}`
+    : ''
+
+  const handleTogglePublicShare = async (enabled) => {
+    setShareLoading(true)
+    try {
+      await setPublicShare(project.id, enabled)
+      if (enabled) toast.success('Public report link generated')
+      else toast.success('Public report link disabled')
+    } catch {
+      toast.error('Failed to update public sharing.')
+    } finally {
+      setShareLoading(false)
+    }
+  }
+
+  const handleGenerateInvite = async () => {
+    if (!isFirebaseEnabled) { toast.error('Invite links require Firebase.'); return }
+    setInviteLoading(true)
+    try {
+      const token = await getOrCreateProjectInviteToken(projectId)
+      const link = `${window.location.origin}${window.location.pathname}#/join/${token}`
+      setInviteLink(link)
+      await navigator.clipboard.writeText(link)
+      toast.success('Invite link copied to clipboard!')
+    } catch {
+      toast.error('Failed to generate invite link.')
+    } finally {
+      setInviteLoading(false)
+    }
+  }
+
+  const handleRevokeInvite = async () => {
+    const ok = await confirm({ title: 'Revoke invite link?', message: 'The current invite link will stop working. You can generate a new one anytime.', confirmLabel: 'Revoke', danger: true })
+    if (!ok) return
+    await revokeProjectInviteToken(projectId)
+    setInviteLink('')
+    toast.success('Invite link revoked.')
+  }
 
   const projectActivities = getActivitiesByProject(projectId).slice(0, 10)
 
@@ -49,6 +124,18 @@ export function SettingsPage() {
     setTimeout(() => setSaved(false), 2000)
   }
 
+  const handleJiraSave = (e) => {
+    e.preventDefault()
+    const trimmedDomain = jiraSettings.domain.trim().replace(/\/+$/, '') // strip trailing slash
+    const trimmedKey = jiraSettings.projectKey.trim().toUpperCase()
+    const cleaned = { domain: trimmedDomain, projectKey: trimmedKey }
+    saveJiraSettings(cleaned)
+    setJiraSettings(cleaned)
+    setJiraSaved(true)
+    toast.success('Jira settings saved')
+    setTimeout(() => setJiraSaved(false), 2000)
+  }
+
   const addExistingMember = (memberId) =>
     updateProject({ ...project, memberIds: [...memberIds, memberId] })
 
@@ -56,36 +143,31 @@ export function SettingsPage() {
     updateProject({ ...project, memberIds: memberIds.filter((id) => id !== memberId) })
 
   // Create a brand-new global member AND attach them to this project atomically
-  const handleAddNew = (e) => {
+  const handleAddNew = async (e) => {
     e.preventDefault()
     const trimmed = newMemberName.trim()
     if (!trimmed) return
-    const newMember = addMember(trimmed)
-    updateProject({ ...project, memberIds: [...memberIds, newMember.id] })
-    setNewMemberName('')
-  }
-
-  const shareLink = project.publicShareToken
-    ? `${window.location.origin}${window.location.pathname}#/report/${project.publicShareToken}`
-    : ''
-
-  const handleTogglePublicShare = async (enabled) => {
-    setShareLoading(true)
     try {
-      await setPublicShare(project.id, enabled)
-      if (enabled) toast.success('Public report link generated')
-      else toast.success('Public report link disabled')
-    } catch {
-      toast.error('Failed to update public sharing.')
-    } finally {
-      setShareLoading(false)
+      const newMember = await addMember(trimmed)
+      updateProject({ ...project, memberIds: [...memberIds, newMember.id] })
+      setNewMemberName('')
+    } catch (err) {
+      toast.error(err.message || 'Failed to add member')
     }
   }
 
   const handleDelete = async () => {
+    const tcCount = testCases.length
+    const bugCount = bugs.length
+    const runCount = runs.length
     const ok = await confirm({
       title: 'Delete project?',
-      message: `All test cases, bugs, and runs in "${project.name}" will be permanently deleted and cannot be recovered.`,
+      message: `All data in "${project.name}" will be permanently deleted and cannot be recovered.`,
+      details: [
+        `${tcCount} test case${tcCount !== 1 ? 's' : ''}`,
+        `${bugCount} bug${bugCount !== 1 ? 's' : ''}`,
+        `${runCount} test run${runCount !== 1 ? 's' : ''}`,
+      ],
       confirmLabel: 'Delete project',
       danger: true,
       requireText: project.name,
@@ -96,207 +178,335 @@ export function SettingsPage() {
     }
   }
 
+  const roleData = [
+    { value: 'Viewer', label: 'Viewer' },
+    { value: 'Tester', label: 'Tester' },
+    { value: 'QA Lead', label: 'QA Lead' },
+  ]
+
+  const nonMemberSelectData = nonMembers.map((m) => ({
+    value: m.id,
+    label: m.name,
+  }))
+
   return (
     <>
-      <PageHeader title="Settings" description={`Configure ${project.name}`} />
+      <PageHeader backTo={`/projects`} title="Settings" description={`Configure ${project.name}`} />
 
-      <section className="panel settings-section">
-        <div className="section-header"><h2>Project details</h2></div>
-        <form className="settings-form" onSubmit={handleSave}>
-          <label>
-            Name <span className="required">*</span>
-            <input value={name} onChange={(e) => setName(e.target.value)} disabled={!isLead} />
-          </label>
-          <label>
-            Description
-            <input
+      {/* ─── Project Details ─── */}
+      <Card shadow="sm" padding="lg" radius="md" withBorder mb="md" bg="var(--surface)" style={{ borderColor: 'var(--border)' }}>
+        <Title order={4} mb="md" style={{ fontFamily: 'var(--heading)', color: 'var(--text-strong)' }}>Project details</Title>
+        <form onSubmit={handleSave}>
+          <Stack gap="sm">
+            <TextInput
+              label="Name"
+              withAsterisk
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              disabled={!isLead}
+            />
+            <Textarea
+              label="Description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Short description"
               disabled={!isLead}
+              autosize
+              minRows={2}
             />
-          </label>
-          <div className="settings-form-footer">
-            <button type="submit" className="primary-button" disabled={!isLead}>
-              {saved ? <><CheckIcon width={14} height={14} /> Saved</> : 'Save changes'}
-            </button>
-          </div>
+            <Group justify="flex-end">
+              <Button type="submit" disabled={!isLead} color={saved ? 'green' : 'accent'}>
+                {saved ? '✓ Saved' : 'Save changes'}
+              </Button>
+            </Group>
+          </Stack>
         </form>
-      </section>
+      </Card>
 
-      {isLead && (
-        <section className="panel settings-section">
-          <div className="section-header"><h2>Public report sharing</h2></div>
-          <div className="settings-body" style={{ display: 'block' }}>
-            <p className="text-muted" style={{ margin: '0 0 12px', fontSize: '12px' }}>
-              Generate a read-only link anyone can view without signing in. Turning sharing off immediately
-              disables the old link.
-            </p>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => handleTogglePublicShare(true)}
-                disabled={shareLoading}
-              >
-                {shareLoading ? 'Working…' : project.publicShareToken ? 'Regenerate link' : 'Enable public sharing'}
-              </button>
-              {project.publicShareToken && (
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => handleTogglePublicShare(false)}
-                  disabled={shareLoading}
-                >
-                  Disable sharing
-                </button>
-              )}
-              {shareLink && (
-                <input
-                  readOnly
-                  value={shareLink}
-                  onFocus={(e) => e.target.select()}
-                  style={{ flex: '1 1 260px', fontSize: 12 }}
+      {/* ─── Team Members ─── */}
+      <Card shadow="sm" padding="lg" radius="md" withBorder mb="md" bg="var(--surface)" style={{ borderColor: 'var(--border)' }}>
+        <Title order={4} mb="md" style={{ fontFamily: 'var(--heading)', color: 'var(--text-strong)' }}>Team members</Title>
+
+        <Text size="sm" fw={500} c="dimmed" mb="xs">Assigned to this project</Text>
+
+        {projectMembers.length === 0 ? (
+          <Text size="sm" c="dimmed" fs="italic">No members assigned yet.</Text>
+        ) : (
+          <Stack gap="xs">
+            {projectMembers.map((m) => (
+              <Group key={m.id} justify="space-between" p="xs" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--soft-bg)', border: '1px solid var(--border)' }}>
+                <Group gap="sm">
+                  <Avatar color="accent" radius="xl" size="sm">
+                    {m.name.slice(0, 2).toUpperCase()}
+                  </Avatar>
+                  <Text size="sm" fw={500}>{m.name}</Text>
+                  {m.uid && (
+                    <Badge variant="light" color="accent" size="xs">
+                      Workspace user
+                    </Badge>
+                  )}
+                </Group>
+                <Group gap="xs">
+                  <Select
+                    data={roleData}
+                    value={m.role || 'Viewer'}
+                    onChange={(val) => updateMember({ ...m, role: val })}
+                    disabled={!isLead}
+                    size="xs"
+                    w={120}
+                    comboboxProps={{ withinPortal: true }}
+                  />
+                  {isLead && (
+                    <ActionIcon
+                      variant="subtle"
+                      color="red"
+                      size="sm"
+                      aria-label={`Remove ${m.name}`}
+                      onClick={() => removeMemberFromProject(m.id)}
+                    >
+                      <XIcon width={14} height={14} />
+                    </ActionIcon>
+                  )}
+                </Group>
+              </Group>
+            ))}
+          </Stack>
+        )}
+
+        {isLead && (
+          <>
+            <Divider my="md" />
+            <Text size="sm" fw={500} c="dimmed" mb="xs">Assign team members</Text>
+
+            <Stack gap="sm">
+              {nonMembers.length > 0 && (
+                <Select
+                  label="Choose from existing team"
+                  placeholder="Select member…"
+                  data={nonMemberSelectData}
+                  value={null}
+                  onChange={(val) => { if (val) addExistingMember(val) }}
+                  searchable
+                  clearable
+                  comboboxProps={{ withinPortal: true }}
                 />
               )}
-            </div>
-          </div>
-        </section>
+
+              <form onSubmit={handleAddNew}>
+                <TextInput
+                  label="Create & assign new member"
+                  placeholder="Name (e.g. John Doe)"
+                  value={newMemberName}
+                  onChange={(e) => setNewMemberName(e.target.value)}
+                  rightSection={
+                    <Button
+                      type="submit"
+                      size="compact-xs"
+                      variant="light"
+                      disabled={!newMemberName.trim()}
+                    >
+                      Add
+                    </Button>
+                  }
+                  rightSectionWidth={60}
+                />
+              </form>
+            </Stack>
+          </>
+        )}
+      </Card>
+
+      {/* ─── Invite to Project ─── */}
+      {isLead && (
+        <Card shadow="sm" padding="lg" radius="md" withBorder mb="md" bg="var(--surface)" style={{ borderColor: 'var(--border)' }}>
+          <Title order={4} mb="xs" style={{ fontFamily: 'var(--heading)', color: 'var(--text-strong)' }}>Invite to project</Title>
+          <Text size="xs" c="dimmed" mb="md">
+            Share this link to invite teammates directly into <strong>{project.name}</strong>. They'll be added as Viewer and can only access this project.
+          </Text>
+
+          <Group gap="sm" wrap="wrap">
+            {inviteLink && (
+              <TextInput
+                readOnly
+                value={inviteLink}
+                style={{ flex: '1 1 300px' }}
+                styles={{ input: { fontFamily: 'monospace', fontSize: 12 } }}
+                onClick={(e) => e.target.select()}
+              />
+            )}
+            <CopyButton value={inviteLink} timeout={2000}>
+              {({ copied, copy }) => (
+                <Button
+                  color={copied ? 'green' : 'accent'}
+                  loading={inviteLoading}
+                  onClick={inviteLink ? copy : handleGenerateInvite}
+                >
+                  {inviteLoading ? 'Generating…' : copied ? 'Copied!' : inviteLink ? 'Copy link' : 'Generate invite link'}
+                </Button>
+              )}
+            </CopyButton>
+            {inviteLink && (
+              <Button variant="light" color="red" onClick={handleRevokeInvite}>
+                Revoke
+              </Button>
+            )}
+          </Group>
+        </Card>
       )}
 
-      <section className="panel settings-section">
-        <div className="section-header"><h2>Team members</h2></div>
-        <div className="settings-body">
-          <div className="member-management-panel">
-            <div className="member-list-wrapper">
-              <span className="section-subtitle">Assigned to this project</span>
-              {projectMembers.length === 0 ? (
-                <p className="settings-empty">No members assigned yet.</p>
-              ) : (
-                <ul className="settings-member-list">
-                  {projectMembers.map((m) => (
-                    <li key={m.id} className="settings-member-item">
-                      <div className="member-info">
-                        <span className="avatar">{m.name.slice(0, 2).toUpperCase()}</span>
-                        <span className="member-name">{m.name}</span>
-                        {m.uid && (
-                          <span className="shared-badge" style={{ marginLeft: 8, background: '#eff6ff', color: '#1d4ed8' }}>
-                            Workspace user
-                          </span>
-                        )}
-                        <select
-                          className="inline-select status-select status-select--neutral"
-                          style={{ marginLeft: 8 }}
-                          value={m.role || 'Viewer'}
-                          disabled={!isLead}
-                          onChange={(e) => updateMember({ ...m, role: e.target.value })}
-                        >
-                          <option value="Viewer">Viewer</option>
-                          <option value="Tester">Tester</option>
-                          <option value="QA Lead">QA Lead</option>
-                        </select>
-                      </div>
-                      {isLead && (
-                        <button
-                          type="button"
-                          className="member-remove-btn"
-                          aria-label={`Remove ${m.name}`}
-                          onClick={() => removeMemberFromProject(m.id)}
-                        >
-                          <XIcon width={12} height={12} />
-                        </button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            {isLead && (
-              <div className="member-actions-wrapper">
-                <span className="section-subtitle">Assign team members</span>
-                <div className="assign-controls">
-                  {nonMembers.length > 0 && (
-                    <div className="control-group">
-                      <label htmlFor="existing-member-select">Choose from existing team</label>
-                      <select
-                        id="existing-member-select"
-                        className="settings-select"
-                        defaultValue=""
-                        onChange={(e) => {
-                          if (e.target.value) { addExistingMember(e.target.value); e.target.value = '' }
-                        }}
-                      >
-                        <option value="" disabled>Select member…</option>
-                        {nonMembers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                      </select>
-                    </div>
-                  )}
-
-                  <form className="control-group" onSubmit={handleAddNew}>
-                    <label htmlFor="new-member-input">Create & assign new member</label>
-                    <div className="input-with-button">
-                      <input
-                        id="new-member-input"
-                        value={newMemberName}
-                        onChange={(e) => setNewMemberName(e.target.value)}
-                        placeholder="Name (e.g. John Doe)"
-                      />
-                      <button type="submit" className="secondary-button" disabled={!newMemberName.trim()}>
-                        Add
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
-
-      <section className="panel settings-section">
-        <div className="section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2>Recent Activity</h2>
-          <Link className="text-link" to={`/activity?projectId=${projectId}`}>
-            View all activity →
-          </Link>
-        </div>
-        <div className="settings-body" style={{ display: 'block' }}>
-          {projectActivities.length === 0 ? (
-            <p className="settings-empty">No recent activity for this project.</p>
-          ) : (
-            <div className="settings-activity-list">
-            {projectActivities.map((act) => (
-              <div key={act.id} className="settings-activity-item">
-                <div className="settings-activity-header">
-                  <strong className="settings-activity-title">{act.title}</strong>
-                  <span className="settings-activity-time">
-                    {new Date(act.createdAt).toLocaleString()}
-                  </span>
-                </div>
-                <div className="settings-activity-meta">
-                  By <strong>{act.actorName}</strong> {act.details ? `— ${act.details}` : ''}
-                </div>
-              </div>
-            ))}
-          </div>
+      {/* ─── Jira Integration ─── */}
+      <Card shadow="sm" padding="lg" radius="md" withBorder mb="md" bg="var(--surface)" style={{ borderColor: 'var(--border)' }}>
+        <Group gap="xs" mb="md">
+          <Title order={4} style={{ fontFamily: 'var(--heading)', color: 'var(--text-strong)' }}>🔗 Jira Integration</Title>
+          {jiraSettings.domain && jiraSettings.projectKey && (
+            <Badge color="green" variant="light" size="sm" leftSection="✓">
+              Active
+            </Badge>
           )}
-        </div>
-      </section>
+        </Group>
 
+        <Text size="xs" c="dimmed" mb="md">
+          Enter your Jira domain and project key once. A <strong>"Push to Jira"</strong> button will appear on every bug so your team can send bugs to Jira with one click — no copy-pasting.
+        </Text>
+
+        <form onSubmit={handleJiraSave}>
+          <Stack gap="sm">
+            <TextInput
+              label="Jira Domain"
+              description="Do not include https:// — just the domain."
+              value={jiraSettings.domain}
+              onChange={(e) => setJiraSettings((s) => ({ ...s, domain: e.target.value }))}
+              placeholder="e.g. mycompany.atlassian.net"
+            />
+            <TextInput
+              label="Project Key"
+              description="The short code in your Jira issue IDs (e.g. PROJ in PROJ-123)."
+              value={jiraSettings.projectKey}
+              onChange={(e) => setJiraSettings((s) => ({ ...s, projectKey: e.target.value }))}
+              placeholder="e.g. PROJ"
+              styles={{ input: { textTransform: 'uppercase' } }}
+            />
+            <Group justify="flex-start" gap="sm">
+              <Button
+                type="submit"
+                disabled={!jiraSettings.domain.trim() || !jiraSettings.projectKey.trim()}
+                color={jiraSaved ? 'green' : 'accent'}
+              >
+                {jiraSaved ? '✓ Saved' : 'Save Jira settings'}
+              </Button>
+              {jiraSettings.domain && jiraSettings.projectKey && (
+                <Button
+                  variant="subtle"
+                  color="gray"
+                  onClick={() => {
+                    const cleared = { domain: '', projectKey: '' }
+                    saveJiraSettings(cleared)
+                    setJiraSettings(cleared)
+                    toast.success('Jira integration disconnected')
+                  }}
+                >
+                  Disconnect
+                </Button>
+              )}
+            </Group>
+          </Stack>
+        </form>
+      </Card>
+
+      {/* ─── Recent Activity ─── */}
+      <Card shadow="sm" padding="lg" radius="md" withBorder mb="md" bg="var(--surface)" style={{ borderColor: 'var(--border)' }}>
+        <Group justify="space-between" mb="md">
+          <Title order={4} style={{ fontFamily: 'var(--heading)', color: 'var(--text-strong)' }}>Recent Activity</Title>
+          <Text component={Link} to={`/activity?projectId=${projectId}`} size="sm" style={{ textDecoration: 'none', color: 'var(--accent)' }}>
+            View all activity →
+          </Text>
+        </Group>
+
+        {projectActivities.length === 0 ? (
+          <Text size="sm" c="dimmed" fs="italic">No recent activity for this project.</Text>
+        ) : (
+          <Timeline active={projectActivities.length - 1} bulletSize={20} lineWidth={2} color="accent">
+            {projectActivities.map((act) => (
+              <Timeline.Item key={act.id} title={<Text size="xs" fw={700} style={{ color: 'var(--text-strong)' }}>{act.title}</Text>}>
+                <Text c="dimmed" style={{ fontSize: '11.5px', marginTop: '2px' }}>
+                  By <Text span fw={500} inherit>{act.actorName}</Text> {act.details ? `— ${act.details}` : ''}
+                </Text>
+                <Text mt={2} c="dimmed" style={{ fontSize: '10.5px' }}>
+                  {new Date(act.createdAt).toLocaleString()}
+                </Text>
+              </Timeline.Item>
+            ))}
+          </Timeline>
+        )}
+      </Card>
+
+      {/* ─── Public Sharing ─── */}
+      <Card shadow="sm" padding="lg" radius="md" withBorder mb="md" bg="var(--surface)" style={{ borderColor: 'var(--border)' }}>
+        <Group justify="space-between" mb="xs">
+          <Title order={4} style={{ fontFamily: 'var(--heading)', color: 'var(--text-strong)' }}>📢 Public Sharing</Title>
+          {project.publicShareToken && (
+            <Badge color="green" variant="light" size="sm" leftSection="✓">
+              Shared
+            </Badge>
+          )}
+        </Group>
+
+        <Text size="xs" c="dimmed" mb="md">
+          Anyone with the link can view the project dashboard, test runs, test plans, and bug tracker in read-only mode.
+        </Text>
+
+        <Group gap="sm" mb={shareLink ? 'md' : 0}>
+          <Button
+            onClick={() => handleTogglePublicShare(true)}
+            loading={shareLoading}
+            variant="filled"
+            color="accent"
+          >
+            {project.publicShareToken ? 'Regenerate link' : 'Enable public sharing'}
+          </Button>
+
+          {project.publicShareToken && (
+            <Button
+              onClick={() => handleTogglePublicShare(false)}
+              loading={shareLoading}
+              variant="outline"
+              color="red"
+            >
+              Disable sharing
+            </Button>
+          )}
+
+          {shareLink && (
+            <CopyButton value={shareLink}>
+              {({ copied, copy }) => (
+                <Button color={copied ? 'teal' : 'gray'} variant="light" onClick={copy}>
+                  {copied ? 'Copied' : 'Copy link'}
+                </Button>
+              )}
+            </CopyButton>
+          )}
+        </Group>
+
+        {shareLink && (
+          <Text size="xs" style={{ marginTop: '8px' }}>
+            <a href={shareLink} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none', wordBreak: 'break-all' }}>
+              {shareLink}
+            </a>
+          </Text>
+        )}
+      </Card>
+
+      {/* ─── Danger Zone ─── */}
       {isLead && (
-        <section className="panel settings-section danger-zone-panel">
-          <div className="section-header"><h2>Danger zone</h2></div>
-          <div className="settings-body danger-body">
-            <div className="danger-text">
-              <strong>Delete this project</strong>
-              <p>Permanently removes all test cases, bugs, and runs. This action cannot be undone.</p>
-            </div>
-            <button type="button" className="danger-button" onClick={handleDelete}>
-              Delete project
-            </button>
-          </div>
-        </section>
+        <Card shadow="sm" padding="lg" radius="md" withBorder mb="md" style={{ borderColor: 'var(--danger)' }} bg="var(--surface)">
+          <Title order={4} c="red" mb="sm" style={{ fontFamily: 'var(--heading)' }}>Danger zone</Title>
+          <Alert variant="light" color="red" title="Delete this project" mb="sm">
+            Permanently removes all test cases, bugs, and runs. This action cannot be undone.
+          </Alert>
+          <Button color="red" variant="filled" onClick={handleDelete}>
+            Delete project
+          </Button>
+        </Card>
       )}
     </>
   )
