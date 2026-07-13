@@ -7,5 +7,32 @@ import react from '@vitejs/plugin-react'
 // hardcoding one or the other.
 export default defineConfig({
   plugins: [react()],
-  base: process.env.VERCEL ? '/' : '/pandalabs/',
+  // Vercel serves the app from its domain root, but the GitHub Pages workflow
+  // (.github/workflows/deploy.yml) still needs the /QA-Labs-Frontend/ subpath -
+  // Vercel sets the VERCEL env var during its build, so branch on that instead of
+  // hardcoding one or the other.
+  base: process.env.VERCEL ? '/' : '/QA-Labs-Frontend/',
+  build: {
+    // Pair CSS with each lazy-loaded page chunk instead of one giant file
+    cssCodeSplit: true,
+    rollupOptions: {
+      output: {
+        // Vite 8 (Rolldown) requires manualChunks as a function.
+        // Separate vendor libraries into long-term-cacheable chunks.
+        // When only app code changes, browsers re-download only the
+        // small app chunk — not the larger vendor libraries.
+        manualChunks(id) {
+          if (id.includes('node_modules/react-router-dom') ||
+              id.includes('node_modules/react-dom') ||
+              id.includes('node_modules/react/')) {
+            return 'vendor-react'
+          }
+          if (id.includes('node_modules/firebase/') ||
+              id.includes('node_modules/@firebase/')) {
+            return 'vendor-firebase'
+          }
+        },
+      },
+    },
+  },
 })
