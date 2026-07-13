@@ -1,0 +1,166 @@
+:root {
+  --page-bg: #FFFFFF;
+  --surface: #FFFFFF;
+  --soft-bg: #F8F6F2;
+  --table-stripe: #FAFAF8;
+  --text-strong: #161618;
+  --text-muted: #52525A;
+  --text-soft: #9A9AA2;
+  --border: #ECEAE4;
+  --border-strong: #D4D2CC;
+  --accent: #FF3962;
+  --accent-strong: #E6334A;
+  --accent-soft: rgba(255, 57, 98, 0.08);
+  --success: #16a34a;
+  --danger: #E11D48;
+  --warning: #ca8a04;
+  --info: #2563eb;
+  --info-soft: #eff6ff;
+  --shadow-sm: 0 1px 3px rgba(22, 22, 24, 0.04);
+  --shadow-md: 0 4px 16px rgba(22, 22, 24, 0.06);
+  --shadow-lg: 0 12px 32px rgba(22, 22, 24, 0.10);
+
+  /* Radius scale */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* Fonts — BugAura design system */
+  --sans: 'Hanken Grotesk', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --heading: 'Sora', var(--sans);
+  --mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+
+  /* Derived tokens */
+  --focus-ring: 0 0 0 3px rgba(255, 57, 98, 0.18);
+  --accent-glow-sm: none;
+  --accent-glow-md: none;
+
+  color-scheme: light;
+  color: var(--text-muted);
+  background: var(--page-bg);
+  font-family: var(--sans);
+  font-size: 16px;
+  font-synthesis: none;
+  line-height: 1.65;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--page-bg);
+  scroll-behavior: smooth;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100svh;
+  margin: 0;
+  scrollbar-gutter: stable;
+}
+
+button,
+input,
+select,
+textarea {
+  letter-spacing: 0;
+  font: inherit;
+}
+
+/* ── Brand selection colour ─────────────────────────────── */
+::selection {
+  background: #FF3962;
+  color: #fff;
+}
+
+/* ── Custom scrollbar ───────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-soft);
+}
+
+/* Typography polish (tracking tension) */
+h1, h2, h3 {
+  font-family: var(--heading);
+  letter-spacing: -0.03em;
+  color: var(--text-strong);
+}
+
+/* ── Spacing utility classes ─────────────────────────────── */
+.mb-0   { margin-bottom: 0; }
+.mb-xs  { margin-bottom: 4px; }
+.mb-sm  { margin-bottom: 8px; }
+.mb-md  { margin-bottom: 16px; }
+.mb-lg  { margin-bottom: 24px; }
+.mb-xl  { margin-bottom: 32px; }
+.mt-0   { margin-top: 0; }
+.mt-xs  { margin-top: 4px; }
+.mt-sm  { margin-top: 8px; }
+.mt-md  { margin-top: 16px; }
+.mt-lg  { margin-top: 24px; }
+.mt-xl  { margin-top: 32px; }
+.pt-0   { padding-top: 0; }
+.pt-sm  { padding-top: 8px; }
+.pt-md  { padding-top: 16px; }
+.pb-0   { padding-bottom: 0; }
+.pb-sm  { padding-bottom: 8px; }
+.pb-md  { padding-bottom: 16px; }
+.p-sm   { padding: 8px; }
+.p-md   { padding: 16px; }
+.px-md  { padding-left: 16px; padding-right: 16px; }
+.py-md  { padding-top: 16px; padding-bottom: 16px; }
+.ml-xs  { margin-left: 4px; }
+.ml-sm  { margin-left: 8px; }
+.ml-md  { margin-left: 16px; }
+.mr-xs  { margin-right: 4px; }
+.mr-sm  { margin-right: 8px; }
+.mr-md  { margin-right: 16px; }
+
+/* ── Keyframes ──────────────────────────────────────────── */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes modal-in {
+  from { opacity: 0; transform: scale(0.97) translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes skeleton-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
