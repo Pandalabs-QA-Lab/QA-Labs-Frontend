@@ -35,10 +35,18 @@ export function useTeamMembers() {
     let changed = false
     const updatedTeam = [...currentTeamRaw]
 
+    // uids that currently own a live session — used to tell a stale uid apart
+    // from an active one, so we only re-link records that are safe to adopt.
+    const liveUids = new Set(workspaceUsers.map((u) => u.uid))
+
     workspaceUsers.forEach((wu) => {
       let existing = updatedTeam.find((m) => m.uid === wu.uid)
       if (!existing) {
-        existing = updatedTeam.find((m) => !m.uid && m.name.toLowerCase() === wu.name.toLowerCase())
+        // Adopt an existing same-name record when it has no uid, or a stale uid
+        // (one no live session owns) — instead of spawning a duplicate Viewer.
+        existing = updatedTeam.find((m) =>
+          m.name.toLowerCase() === wu.name.toLowerCase() && (!m.uid || !liveUids.has(m.uid))
+        )
       }
 
       if (!existing) {
@@ -63,7 +71,8 @@ export function useTeamMembers() {
       } else {
         let memberUpdated = false
         const nextRecord = { ...existing }
-        if (!existing.uid) {
+        // Adopt the live session's uid, keeping the record's existing role.
+        if (existing.uid !== wu.uid) {
           nextRecord.uid = wu.uid
           memberUpdated = true
         }

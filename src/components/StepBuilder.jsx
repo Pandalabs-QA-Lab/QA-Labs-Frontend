@@ -9,8 +9,20 @@ function LayersIcon(props) {
   )
 }
 
+function GripIcon(props) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" {...props}>
+      <circle cx="9" cy="5" r="1.6" /><circle cx="15" cy="5" r="1.6" />
+      <circle cx="9" cy="12" r="1.6" /><circle cx="15" cy="12" r="1.6" />
+      <circle cx="9" cy="19" r="1.6" /><circle cx="15" cy="19" r="1.6" />
+    </svg>
+  )
+}
+
 export function StepBuilder({ steps, onChange, sharedSteps = [] }) {
   const [showSelector, setShowSelector] = useState(false)
+  const [dragIndex, setDragIndex] = useState(null)
+  const [overIndex, setOverIndex] = useState(null)
 
   const updateStep = (index, value) =>
     onChange(steps.map((step, stepIndex) => (stepIndex === index ? value : step)))
@@ -21,7 +33,10 @@ export function StepBuilder({ steps, onChange, sharedSteps = [] }) {
   }
 
   const addSharedBlock = (groupId) => {
-    onChange([...steps, `shared_step_group:${groupId}`])
+    // If all existing steps are empty, replace them instead of appending after blanks
+    const hasContent = steps.some((s) => typeof s === 'string' && s.trim() !== '' && !s.startsWith('shared_step_group:'))
+    const base = hasContent ? steps : steps.filter((s) => typeof s === 'string' && s.trim() !== '')
+    onChange([...base, `shared_step_group:${groupId}`])
     setShowSelector(false)
   }
 
@@ -29,6 +44,62 @@ export function StepBuilder({ steps, onChange, sharedSteps = [] }) {
     if (steps.length === 1) return
     onChange(steps.filter((_, stepIndex) => stepIndex !== index))
   }
+
+  // ── Drag-to-reorder ──
+  const moveStep = (from, to) => {
+    if (from == null || to == null || from === to) return
+    const next = [...steps]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    onChange(next)
+  }
+
+  const handleDragStart = (index) => (event) => {
+    setDragIndex(index)
+    event.dataTransfer.effectAllowed = 'move'
+    // Firefox requires data to be set for a drag to begin
+    event.dataTransfer.setData('text/plain', String(index))
+  }
+
+  const handleDragOver = (index) => (event) => {
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    if (index !== overIndex) setOverIndex(index)
+  }
+
+  const handleDrop = (index) => (event) => {
+    event.preventDefault()
+    moveStep(dragIndex, index)
+    setDragIndex(null)
+    setOverIndex(null)
+  }
+
+  const handleDragEnd = () => {
+    setDragIndex(null)
+    setOverIndex(null)
+  }
+
+  const rowClass = (index, base) => {
+    const cls = [base]
+    if (index === dragIndex) cls.push('step-row--dragging')
+    if (index === overIndex && dragIndex !== null && index !== dragIndex) cls.push('step-row--over')
+    return cls.join(' ')
+  }
+
+  const DragHandle = (index) => (
+    <span
+      className="step-drag-handle"
+      draggable
+      onDragStart={handleDragStart(index)}
+      onDragEnd={handleDragEnd}
+      role="button"
+      tabIndex={-1}
+      aria-label={`Drag to reorder step ${index + 1}`}
+      title="Drag to reorder"
+    >
+      <GripIcon />
+    </span>
+  )
 
   return (
     <div className="step-builder">
@@ -39,7 +110,13 @@ export function StepBuilder({ steps, onChange, sharedSteps = [] }) {
           const groupId = step.split(':')[1]
           const group = sharedSteps.find((g) => g.id === groupId)
           return (
-            <div key={index} className="step-row shared-step-row">
+            <div
+              key={index}
+              className={rowClass(index, 'step-row shared-step-row')}
+              onDragOver={handleDragOver(index)}
+              onDrop={handleDrop(index)}
+            >
+              {DragHandle(index)}
               <span className="step-num">{index + 1}</span>
               <div className="shared-step-block">
                 <div className="shared-step-block-header">
@@ -70,7 +147,13 @@ export function StepBuilder({ steps, onChange, sharedSteps = [] }) {
         }
 
         return (
-          <div key={index} className="step-row">
+          <div
+            key={index}
+            className={rowClass(index, 'step-row')}
+            onDragOver={handleDragOver(index)}
+            onDrop={handleDrop(index)}
+          >
+            {DragHandle(index)}
             <span className="step-num">{index + 1}</span>
             <input
               value={step}

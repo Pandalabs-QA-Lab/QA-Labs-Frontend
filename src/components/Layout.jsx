@@ -473,6 +473,7 @@ export function Layout({ children }) {
     <ScrollToTop />
     <ScrollToTopButton />
     <div className="app-shell" ref={shellRef}>
+      <a href="#main-content" className="skip-to-content">Skip to content</a>
       <StorageWarningBanner />
       <header className="topbar">
         <NavLink to="/dashboard" className="brand" aria-label="QA Lab dashboard">
@@ -502,7 +503,7 @@ export function Layout({ children }) {
 
       <div className="workspace">
         {projectId && <ProjectSidebar projectId={projectId} />}
-        <main className="content">
+        <main className="content" id="main-content">
           {projectId && <ProjectOverview projectId={projectId} />}
           {children}
         </main>

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { EvidenceLinksField } from '../components/EvidenceLinksField'
 import { XIcon, ChevronLeftIcon, ChevronRightIcon, SortAscIcon, SortDescIcon, SortNoneIcon } from '../components/Icons'
 import { useParams, useSearchParams } from 'react-router-dom'
@@ -23,6 +23,7 @@ import { useUserRole } from '../hooks/useUserRole'
 import { useProjects } from '../hooks/useProjects'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { bugMatchesSearch } from '../utils/entitySearch'
+import { getProjectMembers } from '../utils/projectMembers'
 import { getJiraSettings } from '../utils/storage'
 
 function SortTh({ col, label, active, dir, onSort }) {
@@ -169,6 +170,9 @@ function BugForm({ form, setForm, testCases, requirements = [], members, moduleS
           <select value={form.assignedTo} onChange={set('assignedTo')}>
             <option value="">Unassigned</option>
             {members.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
+            {form.assignedTo && !members.some((m) => m.name === form.assignedTo) && (
+              <option value={form.assignedTo}>{form.assignedTo} (not on project)</option>
+            )}
           </select>
         </label>
         <label>
@@ -276,7 +280,7 @@ function BugForm({ form, setForm, testCases, requirements = [], members, moduleS
 
 export function BugTrackerPage() {
   const { projectId } = useParams()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { user } = useUser()
   const { isTester, isViewer } = useUserRole()
   const { bugs, addBug, removeBug, updateBug } = useBugs(projectId)
@@ -286,6 +290,8 @@ export function BugTrackerPage() {
   const { getActivitiesByEntity } = useActivity()
   const { projects } = useProjects()
   const projectName = projects.find((p) => p.id === projectId)?.name ?? projectId
+  // Assignee options scoped to members attached to this project
+  const assignableMembers = getProjectMembers(members, projects.find((p) => p.id === projectId))
   const confirm = useConfirm()
   const toast = useToast()
 
@@ -307,6 +313,18 @@ export function BugTrackerPage() {
     setForm({ ...blank(), reportedBy: user })
     setShowAdd(true)
   }, [user])
+
+  // Open the "Log bug" modal automatically when arriving from a global quick
+  // action (Dashboard → project selector → /bugs?log=true), then strip the param.
+  useEffect(() => {
+    if (searchParams.get('log') === 'true') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: sync the ?log=true URL intent into modal state on navigation, then strip the param
+      openAddModal()
+      const next = new URLSearchParams(searchParams)
+      next.delete('log')
+      setSearchParams(next, { replace: true })
+    }
+  }, [searchParams, openAddModal, setSearchParams])
 
   const handleEscape = useCallback(() => {
     if (showAdd) {
@@ -784,7 +802,7 @@ export function BugTrackerPage() {
             setForm={setForm}
             testCases={testCases}
             requirements={requirements}
-            members={members}
+            members={assignableMembers}
             moduleSuggestions={moduleOptions}
             onCancel={() => setShowAdd(false)}
             onSubmit={handleAdd}
@@ -801,7 +819,7 @@ export function BugTrackerPage() {
             setForm={setForm}
             testCases={testCases}
             requirements={requirements}
-            members={members}
+            members={assignableMembers}
             moduleSuggestions={moduleOptions}
             history={editing.history}
             activities={getActivitiesByEntity('bug', editing.id)}

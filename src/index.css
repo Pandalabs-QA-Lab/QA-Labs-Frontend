@@ -270,3 +270,25 @@ h1, h2, h3 {
   }
 }
 
+/* Skip-to-content link (a11y) */
+.skip-to-content {
+  position: absolute;
+  top: -100%;
+  left: 16px;
+  z-index: 9999;
+  padding: 10px 18px;
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--heading);
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 0 0 8px 8px;
+  text-decoration: none;
+  transition: top 0.2s ease;
+}
+.skip-to-content:focus {
+  top: 0;
+  outline: none;
+  box-shadow: 0 4px 12px rgba(255, 57, 98, 0.3);
+}
+

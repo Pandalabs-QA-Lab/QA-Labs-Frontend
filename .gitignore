@@ -42,3 +42,6 @@ workflow.md
 
 # AI Agent customizations
 .agents/
+.kilo/
+memory/
+

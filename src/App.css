@@ -123,6 +123,13 @@
   font-weight: 700;
 }
 
+.user-pill-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .user-dropdown,
 .user-edit-popover {
   position: absolute;
@@ -272,12 +279,12 @@
 .content {
   flex: 1;
   min-width: 0;
-  padding: 28px 16px 40px 16px;
+  padding: 28px 28px 40px 28px;
   overflow-x: hidden;
 }
 
 .project-sidebar + .content {
-  padding-left: 16px;
+  padding-left: 24px;
 }
 
 /* ── 3. BUTTONS (UNIFIED) ──────────────────────────────────────────────── */
@@ -1432,6 +1439,97 @@ tbody tr:hover {
   color: var(--accent);
 }
 
+/* ── Project picker (global quick-action modal) ─────────────── */
+.project-pick-panel {
+  padding: 4px 18px 18px;
+}
+
+.project-pick-intro {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.project-pick-list {
+  display: grid;
+  gap: 8px;
+}
+
+.project-pick {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-strong);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.15s;
+}
+
+.project-pick:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.project-pick:active {
+  transform: translateY(1px);
+}
+
+.project-pick:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.project-pick-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.project-pick-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.project-pick-name {
+  font-size: 13.5px;
+  font-weight: 650;
+  color: var(--text-strong);
+}
+
+.project-pick-desc {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-pick-arrow {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  color: var(--text-soft);
+  transition: color 0.15s, transform 0.15s;
+}
+
+.project-pick:hover .project-pick-arrow {
+  color: var(--accent);
+  transform: translateX(2px);
+}
+
 .dashboard-empty {
   display: flex;
   flex-direction: column;
@@ -1593,7 +1691,7 @@ tbody tr:hover {
   transform: translateY(-1px);
 }
 
-.metric-card span {
+.metric-card > span {
   font-family: var(--mono);
   font-size: 10px;
   font-weight: 500;
@@ -2669,9 +2767,30 @@ a.process-chip:hover { border-color: var(--accent); color: var(--accent); }
 
 .step-row {
   display: grid;
-  grid-template-columns: 20px 1fr 30px;
+  grid-template-columns: 16px 20px 1fr 30px;
   align-items: center;
   gap: 8px;
+  border-radius: 6px;
+  transition: box-shadow 0.12s, opacity 0.12s;
+}
+
+.step-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-soft);
+  cursor: grab;
+  border-radius: 4px;
+  height: 24px;
+  opacity: 0.6;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+.step-drag-handle:hover { opacity: 1; color: var(--text-strong); background: var(--soft-bg); }
+.step-drag-handle:active { cursor: grabbing; }
+
+.step-row--dragging { opacity: 0.45; }
+.step-row--over {
+  box-shadow: inset 0 2px 0 0 var(--accent);
 }
 
 .step-num {
@@ -3066,8 +3185,11 @@ a.process-chip:hover { border-color: var(--accent); color: var(--accent); }
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
-  padding: 48px 24px 24px;
+  /* Center the modal in the viewport so it's visible without scrolling.
+     The modal is capped at max-height (100dvh - 96px) and scrolls its own
+     body, so centering never pushes content off-screen. */
+  justify-content: center;
+  padding: 24px;
   z-index: 1000;
   animation: fade-in 0.2s ease;
   overflow-y: auto;
@@ -3701,6 +3823,52 @@ button { font-family: inherit; }
 .gs-loading { display: inline-flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 13px; }
 .gs-spinner { display: inline-block; width: 15px; height: 15px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: gs-spin 0.6s linear infinite; }
 @keyframes gs-spin { to { transform: rotate(360deg); } }
+
+/* ── Google Drive import ───────────────────────────────── */
+.drive-zone { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 14px; padding: 34px 24px; border: 1px solid var(--border); border-radius: 12px; background: linear-gradient(180deg, var(--soft-bg), var(--surface)); }
+.drive-zone-logo { display: flex; align-items: center; justify-content: center; width: 64px; height: 64px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+.drive-zone-title { margin: 0 0 4px; font-size: 15px; font-weight: 700; color: var(--text-strong); }
+.drive-zone-sub { margin: 0; max-width: 380px; font-size: 12.5px; line-height: 1.6; color: var(--text-muted); }
+.drive-btn { display: inline-flex; align-items: center; gap: 10px; height: 42px; padding: 0 22px; margin-top: 2px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface); color: var(--text-strong); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.05); transition: box-shadow 0.15s, border-color 0.15s, transform 0.05s; }
+.drive-btn:hover:not(:disabled) { border-color: var(--accent); box-shadow: 0 4px 14px rgba(0,0,0,0.10); }
+.drive-btn:active:not(:disabled) { transform: translateY(1px); }
+.drive-btn:disabled { opacity: 0.65; cursor: default; }
+
+/* ── Google Picker dialog chrome ───────────────────────────
+   Google injects .picker-dialog* nodes into the page body. We can't touch the
+   iframe internals, but we can style the outer shell and layer it above our own
+   modal backdrop (z-index 1000) so it doesn't sit behind the frosted overlay. */
+.goog-modalpopup-bg,
+.picker-dialog-bg {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  background: rgba(15, 23, 42, 0.55) !important;
+  opacity: 1 !important;
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  z-index: 3000 !important;
+}
+.goog-modalpopup,
+.picker-dialog {
+  /* Pin to the viewport center instead of Google's scroll-based absolute top —
+     this kills the "opens at the top, then scrolls to the middle" jump. */
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  margin: 0 !important;
+  z-index: 3001 !important;
+  border: none !important;
+  border-radius: 16px !important;
+  overflow: hidden !important;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35) !important;
+}
+.goog-modalpopup-content,
+.picker-dialog-content,
+.picker-dialog-frame { border-radius: 16px !important; }
 .bulk-summary { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 16px 0; text-align: center; }
 .bulk-summary-icon { font-size: 2.2rem; }
 .bulk-summary h3  { margin: 0; font-size: 16px; font-weight: 700; color: var(--text-strong); }
@@ -3956,7 +4124,7 @@ button { font-family: inherit; }
 /* ── 17. RESPONSIVE DESIGN Polish ──────────────────────────────────────── */
 @media (max-width: 820px) {
   .content {
-    padding: 24px 20px 40px;
+    padding: 24px 24px 40px;
   }
   .page-header h1 {
     font-size: 24px;
@@ -3979,7 +4147,7 @@ button { font-family: inherit; }
     width: 100%;
     height: auto;
     position: static;
-    padding: 12px 0;
+    padding: 12px 16px;
     border-right: 0;
     border-bottom: 1px solid var(--border);
     margin-bottom: 12px;
@@ -3987,14 +4155,30 @@ button { font-family: inherit; }
 
   .project-sidebar nav {
     grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 8px;
   }
 
   .project-sidebar a {
     justify-content: center;
+    padding: 0 10px;
+    min-height: 38px;
+    font-size: 11.5px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+  }
+
+  .project-sidebar a.active {
+    border-color: var(--accent);
+  }
+
+  /* Remove the left accent bar on mobile — it was designed for the vertical sidebar */
+  .project-sidebar a.active::before {
+    display: none;
   }
 
   .project-sidebar + .content {
-    padding-left: 0;
+    padding-left: 24px;
   }
 
   .table-wrap {
@@ -4053,7 +4237,10 @@ button { font-family: inherit; }
     font-size: 22px;
   }
   .content {
-    padding: 20px 16px 32px;
+    padding: 20px 20px 32px;
+  }
+  .project-sidebar + .content {
+    padding-left: 20px;
   }
 
   .workspace {
@@ -8158,6 +8345,52 @@ label.req-tc-option:hover { background: var(--soft-bg); }
 .lp-nav-signin:hover { color: var(--text-strong); }
 .lp-nav-cta { padding: 8px 16px; }
 
+/* Hamburger menu toggle (hidden on desktop) */
+.lp-hamburger {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+  position: relative;
+}
+.lp-hamburger-bar,
+.lp-hamburger-bar::before,
+.lp-hamburger-bar::after {
+  display: block;
+  width: 18px;
+  height: 2px;
+  background: var(--text-strong);
+  border-radius: 1px;
+  transition: transform 0.25s ease, opacity 0.2s ease;
+}
+.lp-hamburger-bar::before,
+.lp-hamburger-bar::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.lp-hamburger-bar::before { top: 10px; }
+.lp-hamburger-bar::after { bottom: 10px; }
+.lp-hamburger-bar--open {
+  background: transparent;
+}
+.lp-hamburger-bar--open::before {
+  top: 50%;
+  transform: translateX(-50%) rotate(45deg);
+}
+.lp-hamburger-bar--open::after {
+  bottom: auto;
+  top: 50%;
+  transform: translateX(-50%) rotate(-45deg);
+}
+
 /* --- Layout shell --- */
 .lp-main {
   max-width: 1120px;
@@ -8546,6 +8779,36 @@ label.req-tc-option:hover { background: var(--soft-bg); }
 }
 @media (max-width: 560px) {
   .lp-nav-links > a { display: none; }
+  .lp-nav-links { display: none; }
+  .lp-nav-links--open {
+    display: flex;
+    flex-direction: column;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow-md);
+    padding: 16px 24px;
+    gap: 12px;
+    animation: fade-up 0.2s ease;
+  }
+  .lp-nav-links--open > a {
+    display: block;
+    font-size: 1rem;
+    padding: 8px 0;
+  }
+  .lp-nav-links--open .lp-nav-signin {
+    text-align: left;
+    padding: 8px 0;
+  }
+  .lp-nav-links--open .lp-nav-cta {
+    width: 100%;
+    text-align: center;
+  }
+  .lp-nav { position: relative; }
+  .lp-hamburger { display: flex; }
   .lp-pillars { grid-template-columns: 1fr; }
   .lp-sub { max-width: none; }
   .lp-cta-row { flex-direction: column; align-items: stretch; }
@@ -10234,16 +10497,60 @@ a.rr-bar-leg:hover { opacity: 0.75; color: var(--text-strong); }
 /* Responsive */
 @media (max-width: 820px) {
   .proj-dash-grid { grid-template-columns: 1fr; }
-  .proj-qnav-grid { grid-template-columns: repeat(2, 1fr); }
+
+  /* Hide quick-nav cards — the sidebar already shows the same links above */
+  .proj-qnav-grid { display: none; }
+
   .proj-stats-strip { flex-wrap: wrap; }
   .proj-stats-divider { display: none; }
-  .proj-stat-card { flex: 0 0 calc(33.33% - 1px); min-width: 0; }
+  .proj-stat-card { flex: 0 0 calc(33.33% - 1px); min-width: 0; padding: 14px 12px; }
+  .proj-stat-value { font-size: 20px; }
+  .proj-stat-label { font-size: 9px; }
+  .proj-stat-sub { font-size: 10px; }
+
+  /* Runs list — stack name and meta vertically */
+  .proj-run-row { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .proj-run-row-main { width: 100%; }
+  .proj-run-name { white-space: normal; word-break: break-word; }
+  .proj-run-row-meta { width: 100%; justify-content: flex-start; gap: 8px; }
+
+  /* Milestones — stack on mobile */
+  .proj-milestone-row { flex-direction: column; gap: 8px; }
+  .proj-milestone-row-right { flex-direction: row; align-items: center; gap: 8px; }
+
+  /* Bugs — allow title to wrap */
+  .proj-bug-row { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .proj-bug-row-main { width: 100%; }
+  .proj-bug-title { word-break: break-word; white-space: normal; }
+
+  /* Active run banner */
+  .proj-active-runs { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .proj-active-run-name { max-width: 100%; }
+
+  /* Coverage snapshot */
+  .proj-coverage-row { flex-wrap: wrap; gap: 6px; }
+  .proj-cov-label { width: auto; flex-shrink: 1; }
 }
 @media (max-width: 640px) {
   .proj-grid { grid-template-columns: 1fr; }
   .proj-stat-card { flex: 0 0 calc(50% - 1px); }
   .proj-stats-strip { border-radius: 10px; }
+  .proj-stat-value { font-size: 18px; }
+
+  /* Section headers inside panels — tighten spacing */
+  .proj-dash-panel .section-header { padding: 10px 12px; gap: 8px; flex-wrap: wrap; }
+  .proj-dash-panel .section-header h2 { font-size: 13px; }
+
+  .proj-run-list { padding: 0 12px; }
+  .proj-milestone-list { padding: 4px 12px; }
+  .proj-bug-list { padding: 0 12px; }
+  .proj-coverage-rows { padding: 12px 12px 10px; }
+  .proj-coverage-chips { padding: 10px 12px 12px; }
 }
 @media (max-width: 480px) {
-  .proj-qnav-grid { grid-template-columns: 1fr; }
+  .proj-stat-card { padding: 12px 8px; }
+  .proj-stat-value { font-size: 16px; }
+  .proj-stat-label { font-size: 8px; }
+  .proj-stat-sub { font-size: 9px; }
 }
+

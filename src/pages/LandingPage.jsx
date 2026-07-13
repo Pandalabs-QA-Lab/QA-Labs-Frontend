@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react'
 
 /* ── Brand mark ──────────────────────────────────────────────────────────── */
 const BrandMark = () => (
@@ -84,27 +85,6 @@ const tourSteps = [
 /* ── Helpers ────────────────────────────────────────────────────────────────── */
 function scrollToId(id) {
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
-}
-
-/* ── Hooks ───────────────────────────────────────────────────────────────── */
-
-/** Intersection Observer hook for scroll-reveal */
-function useScrollReveal(threshold = 0.15) {
-  const ref = useRef(null)
-  const [visible, setVisible] = useState(false)
-
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return undefined
-    const obs = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) { setVisible(true); obs.disconnect() } },
-      { threshold },
-    )
-    obs.observe(el)
-    return () => obs.disconnect()
-  }, [threshold])
-
-  return [ref, visible]
 }
 
 /* ── Demo panel content ──────────────────────────────────────────────────── */
@@ -257,6 +237,7 @@ export function LandingPage({ onGetStarted }) {
   const [tourActive, setTourActive] = useState(false)
   const [tourStep, setTourStep] = useState(0)
   const [scrollPct, setScrollPct] = useState(0)
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
   // Track scroll progress for the progress bar (throttled via rAF)
   useEffect(() => {
@@ -291,12 +272,18 @@ export function LandingPage({ onGetStarted }) {
       window.removeEventListener('load', updateScroll)
     }
   }, [])
-  const [heroRef, heroVisible] = useScrollReveal(0.1)
-  const [pillarsRef, pillarsVisible] = useScrollReveal(0.1)
-  const [featuresRef, featuresVisible] = useScrollReveal(0.1)
-  const [howRef, howVisible] = useScrollReveal(0.1)
-  const [wedgeRef, wedgeVisible] = useScrollReveal(0.1)
-  const [finalRef, finalVisible] = useScrollReveal(0.1)
+  // ── Motion variants (respect prefers-reduced-motion) ──────────
+  const reduce = useReducedMotion()
+  const EASE = [0.22, 1, 0.36, 1]
+  const fadeUp = {
+    hidden: { opacity: 0, y: reduce ? 0 : 24 },
+    show: { opacity: 1, y: 0, transition: { duration: 0.55, ease: EASE } },
+  }
+  const stagger = {
+    hidden: {},
+    show: { transition: { staggerChildren: reduce ? 0 : 0.09, delayChildren: reduce ? 0 : 0.05 } },
+  }
+  const inView = { once: true, amount: 0.2 }
 
   // Auto-cycle demo tabs — pauses when user manually clicks a tab or takes the tour
   useEffect(() => {
@@ -359,33 +346,42 @@ export function LandingPage({ onGetStarted }) {
       {/* ── Nav ─────────────────────────────────────────────────── */}
       <header className="lp-nav">
         <a className="lp-brand" href="#" onClick={(e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' }) }}><BrandMark /><span>QA Lab</span></a>
-        <nav className="lp-nav-links">
-          <a href="#features" onClick={(e) => { e.preventDefault(); scrollToId('features') }}>Features</a>
-          <a href="#how" onClick={(e) => { e.preventDefault(); scrollToId('how') }}>How it works</a>
-          <button type="button" className="lp-nav-signin" onClick={onGetStarted}>Sign in</button>
-          <button type="button" className="primary-button lp-nav-cta" onClick={onGetStarted}>Get started</button>
+        <button
+          type="button"
+          className="lp-hamburger"
+          aria-label={mobileNavOpen ? 'Close menu' : 'Open menu'}
+          aria-expanded={mobileNavOpen}
+          onClick={() => setMobileNavOpen((o) => !o)}
+        >
+          <span className={`lp-hamburger-bar ${mobileNavOpen ? 'lp-hamburger-bar--open' : ''}`} />
+        </button>
+        <nav className={`lp-nav-links ${mobileNavOpen ? 'lp-nav-links--open' : ''}`}>
+          <a href="#features" onClick={(e) => { e.preventDefault(); scrollToId('features'); setMobileNavOpen(false) }}>Features</a>
+          <a href="#how" onClick={(e) => { e.preventDefault(); scrollToId('how'); setMobileNavOpen(false) }}>How it works</a>
+          <button type="button" className="lp-nav-signin" onClick={() => { setMobileNavOpen(false); onGetStarted() }}>Sign in</button>
+          <button type="button" className="primary-button lp-nav-cta" onClick={() => { setMobileNavOpen(false); onGetStarted() }}>Get started</button>
         </nav>
       </header>
 
       <main className="lp-main" id="top">
         {/* ── Hero ──────────────────────────────────────────────── */}
-        <section className={`lp-hero ${heroVisible ? 'lp-reveal' : ''}`} ref={heroRef}>
+        <motion.section className="lp-hero" variants={stagger} initial="hidden" animate="show">
           <div className="lp-hero-copy">
-            <span className="lp-eyebrow">Self-hosted QA test management</span>
-            <h1 className="lp-h1">The QA platform your team fully owns.</h1>
-            <p className="lp-sub">
+            <motion.span className="lp-eyebrow" variants={fadeUp}>Self-hosted QA test management</motion.span>
+            <motion.h1 className="lp-h1" variants={fadeUp}>The QA platform your team fully owns.</motion.h1>
+            <motion.p className="lp-sub" variants={fadeUp}>
               Test cases, runs, bugs, and release readiness in one fast, calm workspace.
               Your own instance, your data.
-            </p>
-            <div className="lp-cta-row">
+            </motion.p>
+            <motion.div className="lp-cta-row" variants={fadeUp}>
               <button type="button" className="primary-button lp-cta-primary lp-cta-pulse" onClick={onGetStarted}>Get started free</button>
               <button type="button" className="secondary-button lp-cta-secondary" onClick={onGetStarted}>Sign in</button>
-            </div>
-            <p className="lp-trust">No credit card · Works offline · Your data stays yours</p>
+            </motion.div>
+            <motion.p className="lp-trust" variants={fadeUp}>No credit card · Works offline · Your data stays yours</motion.p>
           </div>
 
           {/* Interactive mini-demo */}
-          <div className="lp-hero-visual">
+          <motion.div className="lp-hero-visual" variants={fadeUp}>
             <div className="lp-glow" />
             <div className="lp-demo-card">
               <div className="lp-demo-tabs">
@@ -418,89 +414,177 @@ export function LandingPage({ onGetStarted }) {
                 </div>
               </div>
               <div className="ld-panel-wrap">
-                <DemoPanel />
-                {tourActive && (
-                  <div className="ld-tour-overlay">
-                    <strong className="ld-tour-title">{tourSteps[tourStep].title}</strong>
-                    <p className="ld-tour-desc">{tourSteps[tourStep].description}</p>
-                    <div className="ld-tour-footer">
-                      <div className="ld-tour-dots">
-                        {tourSteps.map((_, i) => (
-                          <span key={i} className={`ld-tour-dot ${i === tourStep ? 'ld-tour-dot--active' : ''}`} />
-                        ))}
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={activeDemo}
+                    initial={{ opacity: 0, y: reduce ? 0 : 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: reduce ? 0 : -10 }}
+                    transition={{ duration: 0.3, ease: EASE }}
+                  >
+                    <DemoPanel />
+                  </motion.div>
+                </AnimatePresence>
+                <AnimatePresence>
+                  {tourActive && (
+                    <motion.div
+                      className="ld-tour-overlay"
+                      initial={{ opacity: 0, y: reduce ? 0 : 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: reduce ? 0 : 12 }}
+                      transition={{ duration: 0.3, ease: EASE }}
+                    >
+                      <AnimatePresence mode="wait">
+                        <motion.div
+                          key={tourStep}
+                          initial={{ opacity: 0, y: reduce ? 0 : 6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: reduce ? 0 : -6 }}
+                          transition={{ duration: 0.25, ease: EASE }}
+                        >
+                          <strong className="ld-tour-title">{tourSteps[tourStep].title}</strong>
+                          <p className="ld-tour-desc">{tourSteps[tourStep].description}</p>
+                        </motion.div>
+                      </AnimatePresence>
+                      <div className="ld-tour-footer">
+                        <div className="ld-tour-dots">
+                          {tourSteps.map((_, i) => (
+                            <span key={i} className={`ld-tour-dot ${i === tourStep ? 'ld-tour-dot--active' : ''}`} />
+                          ))}
+                        </div>
+                        <button className="ld-tour-end-btn" type="button" onClick={endTour}>
+                          End tour
+                        </button>
                       </div>
-                      <button className="ld-tour-end-btn" type="button" onClick={endTour}>
-                        End tour
-                      </button>
-                    </div>
-                  </div>
-                )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </div>
 
-          </div>
-        </section>
+          </motion.div>
+        </motion.section>
 
         {/* ── Pillars ───────────────────────────────────────────── */}
-        <section className={`lp-pillars ${pillarsVisible ? 'lp-reveal' : ''}`} ref={pillarsRef}>
-          {pillars.map((p, i) => (
-            <article key={p.title} className="lp-pillar" style={{ transitionDelay: `${i * 80}ms` }}>
+        <motion.section
+          className="lp-pillars"
+          variants={stagger}
+          initial="hidden"
+          whileInView="show"
+          viewport={inView}
+        >
+          {pillars.map((p) => (
+            <motion.article
+              key={p.title}
+              className="lp-pillar"
+              variants={fadeUp}
+              whileHover={reduce ? undefined : { y: -3 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 22 }}
+            >
               <span className="lp-pillar-icon"><Glyph name={p.icon} /></span>
               <h3>{p.title}</h3>
               <p>{p.text}</p>
-            </article>
+            </motion.article>
           ))}
-        </section>
+        </motion.section>
 
         {/* ── Features ──────────────────────────────────────────── */}
-        <section className={`lp-section ${featuresVisible ? 'lp-reveal' : ''}`} id="features" ref={featuresRef}>
-          <div className="lp-section-head">
+        <section className="lp-section" id="features">
+          <motion.div
+            className="lp-section-head"
+            variants={fadeUp}
+            initial="hidden"
+            whileInView="show"
+            viewport={inView}
+          >
             <h2>Everything a QA team needs, nothing it doesn't</h2>
             <p>The full testing loop in one tool, no add-ons and no AI gimmicks.</p>
-          </div>
-          <div className="lp-feature-grid">
-            {features.map((f, i) => (
-              <article key={f.title} className="lp-feature" style={{ transitionDelay: `${i * 80}ms` }}>
+          </motion.div>
+          <motion.div
+            className="lp-feature-grid"
+            variants={stagger}
+            initial="hidden"
+            whileInView="show"
+            viewport={inView}
+          >
+            {features.map((f) => (
+              <motion.article
+                key={f.title}
+                className="lp-feature"
+                variants={fadeUp}
+                whileHover={reduce ? undefined : { y: -3 }}
+                transition={{ type: 'spring', stiffness: 300, damping: 22 }}
+              >
                 <span className="lp-feature-icon"><Glyph name={f.icon} /></span>
                 <div>
                   <h3>{f.title}</h3>
                   <p>{f.text}</p>
                 </div>
-              </article>
+              </motion.article>
             ))}
-          </div>
+          </motion.div>
         </section>
 
         {/* ── How it works ──────────────────────────────────────── */}
-        <section className={`lp-section lp-how ${howVisible ? 'lp-reveal' : ''}`} id="how" ref={howRef}>
-          <div className="lp-section-head">
+        <section className="lp-section lp-how" id="how">
+          <motion.div
+            className="lp-section-head"
+            variants={fadeUp}
+            initial="hidden"
+            whileInView="show"
+            viewport={inView}
+          >
             <h2>From test case to "ready to ship" in three steps</h2>
-          </div>
-          <div className="lp-steps">
-            {steps.map((s, i) => (
-              <article key={s.n} className="lp-step" style={{ transitionDelay: `${i * 100}ms` }}>
+          </motion.div>
+          <motion.div
+            className="lp-steps"
+            variants={stagger}
+            initial="hidden"
+            whileInView="show"
+            viewport={inView}
+          >
+            {steps.map((s) => (
+              <motion.article
+                key={s.n}
+                className="lp-step"
+                variants={fadeUp}
+                whileHover={reduce ? undefined : { y: -3 }}
+                transition={{ type: 'spring', stiffness: 300, damping: 22 }}
+              >
                 <span className="lp-step-n">{s.n}</span>
                 <h3>{s.title}</h3>
                 <p>{s.text}</p>
-              </article>
+              </motion.article>
             ))}
-          </div>
+          </motion.div>
         </section>
 
         {/* ── Wedge ─────────────────────────────────────────────── */}
-        <section className={`lp-wedge ${wedgeVisible ? 'lp-reveal' : ''}`} ref={wedgeRef}>
+        <motion.section
+          className="lp-wedge"
+          variants={fadeUp}
+          initial="hidden"
+          whileInView="show"
+          viewport={inView}
+        >
           <h2>Your QA data shouldn&apos;t live in someone else&apos;s cloud.</h2>
           <p>
             Every team gets its own instance and its own domain, fully isolated and fully yours.
             No shared database, no lock-in. Own your quality, end to end.
           </p>
-        </section>
+        </motion.section>
 
         {/* ── Final CTA ─────────────────────────────────────────── */}
-        <section className={`lp-final ${finalVisible ? 'lp-reveal' : ''}`} ref={finalRef}>
+        <motion.section
+          className="lp-final"
+          variants={fadeUp}
+          initial="hidden"
+          whileInView="show"
+          viewport={inView}
+        >
           <h2>Ready to own your QA?</h2>
           <button type="button" className="primary-button lp-cta-primary lp-cta-pulse" onClick={onGetStarted}>Get started free</button>
-        </section>
+        </motion.section>
       </main>
 
       <footer className="lp-footer">

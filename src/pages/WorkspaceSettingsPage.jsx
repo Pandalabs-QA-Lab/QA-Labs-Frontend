@@ -51,6 +51,38 @@ const WorkspaceIcon = (props) => (
   </svg>
 )
 
+// Role hierarchy — higher rank wins when collapsing duplicate member records.
+const ROLE_RANK = { Viewer: 0, Tester: 1, 'QA Lead': 2 }
+
+// Collapse records that represent the same person (same name) into one row.
+// The live-session record (matching the current uid, then any record with a uid)
+// is kept as canonical so edits/deletes hit the real account, but the highest
+// role and any email/uid across the group are carried onto it.
+function dedupeMembers(list, currentUid) {
+  const byName = new Map()
+  for (const m of list) {
+    const key = (m.name || '').trim().toLowerCase()
+    if (!key) continue
+    const existing = byName.get(key)
+    if (!existing) { byName.set(key, m); continue }
+
+    const canonical =
+      currentUid && m.uid === currentUid ? m :
+      currentUid && existing.uid === currentUid ? existing :
+      m.uid && !existing.uid ? m :
+      existing
+    const other = canonical === m ? existing : m
+
+    byName.set(key, {
+      ...canonical,
+      role: (ROLE_RANK[other.role] ?? 0) > (ROLE_RANK[canonical.role] ?? 0) ? other.role : canonical.role,
+      email: canonical.email || other.email,
+      uid: canonical.uid || other.uid,
+    })
+  }
+  return Array.from(byName.values())
+}
+
 export function WorkspaceSettingsPage() {
   const { user, updateUser } = useUser()
   const { firebaseUser } = useAuth()
@@ -138,8 +170,9 @@ export function WorkspaceSettingsPage() {
   // Active tab selection forced to 'profile' for non-leads
   const currentTab = isLead ? activeTab : 'profile'
 
-  // Filtered members by search query
-  const filteredMembers = members.filter((m) => {
+  // Collapse duplicate records for the same person, then filter by search query
+  const uniqueMembers = dedupeMembers(members, auth?.currentUser?.uid)
+  const filteredMembers = uniqueMembers.filter((m) => {
     return memberMatchesSearch(m, searchQuery)
   })
 

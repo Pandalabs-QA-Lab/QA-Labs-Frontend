@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { MantineProvider, createTheme } from '@mantine/core'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Layout } from './components/Layout'
 import { WorkspaceGate } from './components/WorkspaceGate'
@@ -39,6 +40,28 @@ const ProjectDashboardPage = lazy(() => import('./pages/ProjectDashboardPage').t
 const JoinPage = lazy(() => import('./pages/JoinPage').then(m => ({ default: m.JoinPage })))
 const PublicReportPage = lazy(() => import('./pages/PublicReportPage').then(m => ({ default: m.PublicReportPage })))
 import './App.css'
+
+const mantineTheme = createTheme({
+  primaryColor: 'accent',
+  colors: {
+    accent: [
+      '#fff0f3',
+      '#ffe0e6',
+      '#ffc2cd',
+      '#ff93a6',
+      '#ff5f7d',
+      '#ff3962', // primary brand color (#FF3962)
+      '#ed1b47',
+      '#c70e35',
+      '#a40728',
+      '#85011c',
+    ],
+  },
+  fontFamily: 'inherit',
+  headings: { fontFamily: 'inherit' },
+  defaultRadius: 'md',
+  cursorType: 'pointer',
+})
 
 function NamePicker({ onDone }) {
   const [name, setName] = useState('')
@@ -118,82 +141,47 @@ function AppShell() {
   const { projects } = useProjects()
   const [showAuth, setShowAuth] = useState(false)
   // Show onboarding for new workspaces with no projects (check once on mount)
-  const [showOnboarding, setShowOnboarding] = useState(
-    () => projects.length === 0 && !localStorage.getItem('qa_onboarding_dismissed')
-  )
+  const [showOnboarding, setShowOnboarding] = useState(() => {
+    const dismissed = localStorage.getItem('qa_onboarding_dismissed')
+    return dismissed !== '1'
+  })
 
-  // Track if user was previously signed out
-  const wasSignedOutRef = useRef(false)
-
+  // Watch projects change to show onboarding if empty
+  const hasCheckedProjects = useRef(false)
   useEffect(() => {
-    const isSignedOut = (isFirebaseEnabled && firebaseUser === null) || (!isFirebaseEnabled && user === null)
-    if (isSignedOut) {
-      wasSignedOutRef.current = true
+    if (loading) return
+    if (!firebaseUser) return
+    if (hasCheckedProjects.current) return
+    if (projects.length === 0) {
+      setShowOnboarding(true)
     }
-  }, [firebaseUser, user])
+    hasCheckedProjects.current = true
+  }, [projects, loading, firebaseUser])
 
-  // Redirect to dashboard upon successful sign-in
-  useEffect(() => {
-    const isAuthenticated = (isFirebaseEnabled ? !!firebaseUser : true) && !!user
-    if (isAuthenticated && wasSignedOutRef.current) {
-      window.location.hash = '#/dashboard'
-      wasSignedOutRef.current = false
-    }
-  }, [firebaseUser, user])
+  // Public report layout check (no layout headers)
+  const isPublicReport = window.location.hash.startsWith('#/public-report/')
 
-  // Auto-populate display name from Firebase profile on first sign-in
-  useEffect(() => {
-    if (isFirebaseEnabled && firebaseUser && !user) {
-      const name = firebaseUser.isAnonymous
-        ? 'Guest'
-        : (firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User')
-      updateUser(name)
-    }
-  }, [firebaseUser, user, updateUser])
-
-  useEffect(() => {
-    if (isFirebaseEnabled && firebaseUser && user && !firebaseUser.isAnonymous) {
-      import('./utils/remoteStorage').then(({ syncUserProfileRemote }) => {
-        syncUserProfileRemote(firebaseUser, user)
-      })
-    }
-  }, [firebaseUser, user])
-
-  // Firebase auth still resolving
-  if (isFirebaseEnabled && loading) {
+  if (loading) {
     return (
       <div className="app-loading">
         <div className="app-loading-card" role="status" aria-live="polite">
-          <span className="app-loading-mark" aria-hidden="true">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-              <path d="m9 11 2 2 4-4" />
-            </svg>
-          </span>
-          <div className="app-loading-spinner" aria-label="Loading" />
-          <div>
-            <strong>QA Lab</strong>
-            <p className="app-loading-text">Preparing your workspace</p>
-          </div>
+          <div className="app-loading-spinner" aria-label="Loading app" />
         </div>
       </div>
     )
   }
 
-  // Firebase enabled but not signed in → show landing page first, then auth on demand
+  // Force login if no credentials
   if (isFirebaseEnabled && !firebaseUser) {
+    if (isPublicReport) return appRoutes
     return showAuth
       ? <AuthPage onBack={() => setShowAuth(false)} />
       : <LandingPage onGetStarted={() => setShowAuth(true)} />
   }
 
-  // localStorage mode: no name set → show name picker
+  // Choose display name on first load
   if (!user) {
-    return (
-      <UserContext.Provider value={{ user, updateUser }}>
-        <NamePicker onDone={updateUser} />
-      </UserContext.Provider>
-    )
+    return <NamePicker onDone={updateUser} />
   }
 
   return (
@@ -232,14 +220,16 @@ export function App() {
   }
 
   return (
-    <ToastProvider>
-      <ConfirmProvider>
-        <AuthProvider>
-          <AppShell />
-        </AuthProvider>
-      </ConfirmProvider>
-    </ToastProvider>
+    <MantineProvider theme={mantineTheme} forceColorScheme="light">
+      <ToastProvider>
+        <ConfirmProvider>
+          <AuthProvider>
+            <AppShell />
+          </AuthProvider>
+        </ConfirmProvider>
+      </ToastProvider>
+    </MantineProvider>
   )
 }
 
-export default App
+export default App;

@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useId } from 'react'
+import { createPortal } from 'react-dom'
 import { XIcon } from './Icons'
 
 export function Modal({ title, onClose, children, style, closeOnBackdrop = false }) {
@@ -29,7 +30,10 @@ export function Modal({ title, onClose, children, style, closeOnBackdrop = false
     }
   }
 
-  return (
+  // Portal to <body> so the fixed backdrop is positioned against the viewport,
+  // not against any ancestor that creates a containing block (e.g. an element
+  // with a transform/filter). This keeps the modal reliably centered on screen.
+  return createPortal(
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={handleBackdropClick}>
       <div className="modal" style={style} role="document">
         <div className="modal-header">
@@ -40,6 +44,7 @@ export function Modal({ title, onClose, children, style, closeOnBackdrop = false
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

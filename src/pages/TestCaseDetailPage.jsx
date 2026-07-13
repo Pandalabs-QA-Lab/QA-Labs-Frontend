@@ -15,6 +15,8 @@ import { useTeamMembers } from '../hooks/useTeamMembers'
 import { useTestCases } from '../hooks/useTestCases'
 import { useActivity } from '../hooks/useActivity'
 import { useSharedSteps } from '../hooks/useSharedSteps'
+import { useProjects } from '../hooks/useProjects'
+import { getProjectMembers } from '../utils/projectMembers'
 import { describeTestCaseChanges, historyEntry, withHistory } from '../utils/history'
 import { newId } from '../utils/id'
 import { STATUS_TONE, TEST_STATUSES } from '../utils/status'
@@ -33,9 +35,13 @@ export function TestCaseDetailPage() {
   const { testCases, updateTestCase, removeTestCase } = useTestCases(projectId)
   const { bugs, addBug } = useBugs(projectId)
   const { members } = useTeamMembers()
+  const { projects } = useProjects()
   const { activities } = useActivity()
   const { sharedSteps } = useSharedSteps(projectId)
   const navigate = useNavigate()
+
+  // Assignee options are scoped to people attached to this project (memberIds)
+  const assignableMembers = getProjectMembers(members, projects.find((p) => p.id === projectId))
   const confirm = useConfirm()
   const toast = useToast()
 
@@ -456,7 +462,10 @@ export function TestCaseDetailPage() {
               <label>Assignee
                 <select value={form.assignee} onChange={set('assignee')}>
                   <option value="">Unassigned</option>
-                  {members.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
+                  {assignableMembers.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
+                  {form.assignee && !assignableMembers.some((m) => m.name === form.assignee) && (
+                    <option value={form.assignee}>{form.assignee} (not on project)</option>
+                  )}
                 </select>
               </label>
             </div>

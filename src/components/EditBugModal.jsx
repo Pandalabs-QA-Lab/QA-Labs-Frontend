@@ -3,6 +3,8 @@ import { Modal } from './Modal'
 import { EvidenceLinksField } from './EvidenceLinksField'
 import { useUser } from '../context/UserContext'
 import { useTeamMembers } from '../hooks/useTeamMembers'
+import { useProjects } from '../hooks/useProjects'
+import { getProjectMembers } from '../utils/projectMembers'
 
 const SEVERITIES = ['Critical', 'Major', 'Minor']
 const PRIORITIES = ['High', 'Medium', 'Low']
@@ -12,6 +14,9 @@ const RETEST_STATUSES = ['Not Retested', 'Passed', 'Failed']
 export function EditBugModal({ bug, projectId, onSave, onClose }) {
   const { user } = useUser()
   const { members } = useTeamMembers(projectId)
+  const { projects } = useProjects()
+  // Assignee options scoped to members attached to this project
+  const assignableMembers = getProjectMembers(members, projects.find((p) => p.id === projectId))
 
   const [form, setForm] = useState({
     title:            bug.title || '',
@@ -106,7 +111,10 @@ export function EditBugModal({ bug, projectId, onSave, onClose }) {
             Assigned To
             <select value={form.assignedTo} onChange={set('assignedTo')}>
               <option value="">Unassigned</option>
-              {members.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
+              {assignableMembers.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
+              {form.assignedTo && !assignableMembers.some((m) => m.name === form.assignedTo) && (
+                <option value={form.assignedTo}>{form.assignedTo} (not on project)</option>
+              )}
             </select>
           </label>
           <label>

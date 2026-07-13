@@ -442,61 +442,20 @@
   animation: none;
 }
 
-/* ── Scroll reveal ─────────────────────────────────────────── */
-.lp-reveal .lp-hero-copy,
-.lp-reveal .lp-hero-visual,
-.lp-reveal .lp-pillar,
-.lp-reveal .lp-feature,
-.lp-reveal .lp-step,
-.lp-reveal .lp-section-head {
-  animation: reveal-up 0.6s ease both;
-}
+/* ── Scroll reveal ─────────────────────────────────────────────
+   Entrance/stagger animations are handled by Motion (framer-motion)
+   in LandingPage.jsx. CSS keeps only hover/box styling here so the
+   two systems don't fight over `transform` (inline style wins). */
 
-@keyframes reveal-up {
-  from {
-    opacity: 0;
-    transform: translateY(24px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* Staggered delays for child elements */
-.lp-reveal .lp-hero-visual { animation-delay: 0.15s; }
-.lp-pillar, .lp-feature, .lp-step {
-  opacity: 0;
-}
-.lp-reveal .lp-pillar,
-.lp-reveal .lp-feature,
-.lp-reveal .lp-step {
-  animation: reveal-up 0.5s ease both;
-}
-.lp-pillar:nth-child(1), .lp-feature:nth-child(1), .lp-step:nth-child(1) { animation-delay: 0ms; }
-.lp-pillar:nth-child(2), .lp-feature:nth-child(2), .lp-step:nth-child(2) { animation-delay: 80ms; }
-.lp-pillar:nth-child(3), .lp-feature:nth-child(3), .lp-step:nth-child(3) { animation-delay: 160ms; }
-.lp-pillar:nth-child(4), .lp-feature:nth-child(4) { animation-delay: 240ms; }
-
-/* ── Feature card hover ────────────────────────────────────── */
+/* ── Feature card hover ────────────────────────────────────────
+   Lift is done by Motion's whileHover; CSS handles shadow + border. */
 .lp-feature {
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
 .lp-feature:hover {
-  transform: translateY(-3px);
   box-shadow: 0 6px 20px rgba(0,0,0,0.06);
   border-color: var(--border-strong);
-}
-
-/* ── Wedge & final reveal ──────────────────────────────────── */
-.lp-wedge, .lp-final {
-  opacity: 1;
-}
-
-.lp-reveal .lp-wedge,
-.lp-reveal .lp-final {
-  animation: reveal-up 0.6s ease both;
 }
 
 /* ── Smooth scroll (scoped to landing page only) ────────────── */

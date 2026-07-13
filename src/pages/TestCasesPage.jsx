@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from 'react'
+import { useMemo, useState, useCallback, useEffect } from 'react'
 import { UploadIcon, DownloadIcon, PencilIcon, CopyIcon, XIcon, ChevronLeftIcon, ChevronRightIcon, SortAscIcon, SortDescIcon, SortNoneIcon, ArrowRightIcon } from '../components/Icons'
 import { useSortable } from '../hooks/useSortable'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
@@ -18,6 +18,7 @@ import { useSharedSteps } from '../hooks/useSharedSteps'
 import { useUserRole } from '../hooks/useUserRole'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { describeTestCaseChanges, historyEntry, withHistory } from '../utils/history'
+import { getProjectMembers } from '../utils/projectMembers'
 import { STATUS_TONE, TEST_STATUSES, normalizeTestStatus } from '../utils/status'
 import { exportTestCases } from '../utils/export'
 import { addActivity } from '../utils/activity'
@@ -49,7 +50,7 @@ const blankForm = (overrides = {}) => ({
 
 export function TestCasesPage() {
   const { projectId } = useParams()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { testCases, addTestCase, updateTestCase, removeTestCase, removeTestCases } = useTestCases(projectId)
   const { addBug } = useBugs(projectId)
   const { members } = useTeamMembers()
@@ -57,6 +58,8 @@ export function TestCasesPage() {
   const { user } = useUser()
   const { isLead } = useUserRole()
   const projectName = projects.find((p) => p.id === projectId)?.name ?? projectId
+  // Assignee options scoped to members attached to this project
+  const assignableMembers = getProjectMembers(members, projects.find((p) => p.id === projectId))
   const confirm = useConfirm()
   const toast = useToast()
 
@@ -95,6 +98,18 @@ export function TestCasesPage() {
     setForm(blankForm({ folder: fFolder, module: fModule }))
     setShowAdd(true)
   }, [fFolder, fModule])
+
+  // Open the "Add test case" modal automatically when arriving from a global
+  // quick action (Dashboard → project selector → /test-cases?add=true).
+  useEffect(() => {
+    if (searchParams.get('add') === 'true') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: sync the ?add=true URL intent into modal state on navigation, then strip the param
+      openAddModal()
+      const next = new URLSearchParams(searchParams)
+      next.delete('add')
+      setSearchParams(next, { replace: true })
+    }
+  }, [searchParams, openAddModal, setSearchParams])
 
   const handleEscape = useCallback(() => {
     if (showAdd) {
@@ -1120,7 +1135,10 @@ export function TestCasesPage() {
                 Assignee
                 <select value={form.assignee} onChange={set('assignee')}>
                   <option value="">Unassigned</option>
-                  {members.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
+                  {assignableMembers.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
+                  {form.assignee && !assignableMembers.some((m) => m.name === form.assignee) && (
+                    <option value={form.assignee}>{form.assignee} (not on project)</option>
+                  )}
                 </select>
               </label>
             </div>
