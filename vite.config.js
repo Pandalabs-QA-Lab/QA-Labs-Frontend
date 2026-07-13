@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  base: '/pandalabs/',
+  base: '/QA-Labs-Frontend/',
   build: {
     // Pair CSS with each lazy-loaded page chunk instead of one giant file
     cssCodeSplit: true,
