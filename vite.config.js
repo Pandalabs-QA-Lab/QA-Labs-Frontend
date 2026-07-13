@@ -3,7 +3,11 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  base: '/QA-Labs-Frontend/',
+  // Vercel serves the app from its domain root, but the GitHub Pages workflow
+  // (.github/workflows/deploy.yml) still needs the /QA-Labs-Frontend/ subpath -
+  // Vercel sets the VERCEL env var during its build, so branch on that instead of
+  // hardcoding one or the other.
+  base: process.env.VERCEL ? '/' : '/QA-Labs-Frontend/',
   build: {
     // Pair CSS with each lazy-loaded page chunk instead of one giant file
     cssCodeSplit: true,
