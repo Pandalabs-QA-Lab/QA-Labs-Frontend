@@ -5,6 +5,7 @@ import { StatusPill } from '../components/StatusPill'
 import { EditBugModal } from '../components/EditBugModal'
 import { useTestRuns } from '../hooks/useTestRuns'
 import { useBugs } from '../hooks/useBugs'
+import { useUserRole } from '../hooks/useUserRole'
 import { STATUS_TONE, TEST_STATUSES, summarizeStatuses } from '../utils/status'
 import { BugIcon, ShieldCheckIcon, CheckCircleIcon } from '../components/Icons'
 import { PassRing, Bar } from '../components/Charts'
@@ -22,6 +23,7 @@ function getFailureModules(cases = []) {
 }
 
 export function TestRunDetailPage() {
+  const { isViewer } = useUserRole()
   const { projectId, runId } = useParams()
   const { runs, updateRun } = useTestRuns(projectId)
   const { bugs, updateBug } = useBugs(projectId)
@@ -111,12 +113,12 @@ export function TestRunDetailPage() {
           ) : (
             <span className="run-name-display-row">
               {run.name || 'Test run details'}
-              <button type="button" className="run-name-edit-btn" onClick={startEditName} aria-label="Edit run name" title="Rename run">
+              {!isViewer && <button type="button" className="run-name-edit-btn" onClick={startEditName} aria-label="Edit run name" title="Rename run">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                   <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                 </svg>
-              </button>
+              </button>}
             </span>
           )
         }
@@ -241,6 +243,7 @@ export function TestRunDetailPage() {
                         className={`inline-select status-select status-select--${STATUS_TONE[tc.status] ?? 'pending'}`}
                         value={tc.status || 'Not Executed'}
                         aria-label={`Status for ${tc.title}`}
+                        disabled={isViewer}
                         onChange={(e) => updateCaseStatus(idx, e.target.value)}
                       >
                         {TEST_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}

@@ -207,28 +207,21 @@ function getCurrentUserName() {
   }
 }
 
-const ADMIN_EMAIL = 'admin@qalabs.com'
-
 export async function syncUserProfileRemote(firebaseUser, customName) {
   if (!isFirebaseEnabled || !firebaseUser || firebaseUser.isAnonymous || !db) return
   ensureFirebase()
 
-  const isAdminAccount = firebaseUser.email?.toLowerCase() === ADMIN_EMAIL
-
-  // Check if this user is marked as deleted in teamMembers to prevent session recreation
-  // (admin is exempt — cannot be locked out)
-  if (!isAdminAccount) {
-    try {
-      const { getTeamMembersRaw, isDeleted } = await import('./storage')
-      const allMembers = getTeamMembersRaw()
-      const matching = allMembers.find((m) => m.uid === firebaseUser.uid)
-      if (matching && isDeleted(matching)) {
-        console.warn('[remoteStorage] User is deleted from workspace, skipping profile sync')
-        return
-      }
-    } catch (err) {
-      console.error('[remoteStorage] Failed to check deletion status before profile sync:', err)
+  // Check if this user is marked as deleted in teamMembers to prevent session recreation.
+  try {
+    const { getTeamMembersRaw, isDeleted } = await import('./storage')
+    const allMembers = getTeamMembersRaw()
+    const matching = allMembers.find((m) => m.uid === firebaseUser.uid)
+    if (matching && isDeleted(matching)) {
+      console.warn('[remoteStorage] User is deleted from workspace, skipping profile sync')
+      return
     }
+  } catch (err) {
+    console.error('[remoteStorage] Failed to check deletion status before profile sync:', err)
   }
 
   const memberRef = doc(db, ...workspacePath(), 'members', firebaseUser.uid)
@@ -261,26 +254,6 @@ export async function syncUserProfileRemote(firebaseUser, customName) {
     console.error('[remoteStorage] Failed to sync user profile:', err)
   }
 
-  // Ensure admin always has a teamMembers record with QA Lead so every code
-  // path that reads teamMembers agrees on the role.
-  if (isAdminAccount) {
-    try {
-      const adminMemberRef = doc(db, ...membersPath(), firebaseUser.uid)
-      const adminSnap = await getDoc(adminMemberRef)
-      const base = adminSnap.exists() ? adminSnap.data() : {}
-      await setDoc(adminMemberRef, cleanRecord({
-        ...base,
-        id: firebaseUser.uid,
-        uid: firebaseUser.uid,
-        name: base.name || 'Admin',
-        email: firebaseUser.email,
-        role: 'QA Lead',
-        updatedAt: new Date().toISOString(),
-      }), { merge: true })
-    } catch (err) {
-      console.error('[remoteStorage] Failed to sync admin teamMember record:', err)
-    }
-  }
 }
 
 export async function deleteWorkspaceUserRemote(uid) {

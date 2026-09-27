@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
 import { api } from '../api/client'
 
 export function JoinPage() {
   const { token } = useParams()
-  const { authUser } = useAuth()
-  const navigate = useNavigate()
+  const { authUser, switchWorkspace } = useAuth()
   const [status, setStatus] = useState('checking') // checking | joining | done | invalid
   const [workspaceName, setWorkspaceName] = useState('')
 
@@ -19,17 +18,18 @@ export function JoinPage() {
   }, [token])
 
   useEffect(() => {
-    if (!authUser || !token || status === 'invalid') return
+    if (!authUser || !token || status !== 'checking') return
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reacting to authUser becoming available, not a derived-state sync
     setStatus('joining')
     api.post(`/invites/${token}/accept`, {})
-      .then(({ workspaceName: name }) => {
+      .then(async ({ workspaceName: name, workspaceId }) => {
+        await switchWorkspace(workspaceId)
         setWorkspaceName(name)
         setStatus('done')
-        setTimeout(() => navigate('/projects'), 1500)
+        setTimeout(() => { window.location.hash = '#/projects'; window.location.reload() }, 800)
       })
       .catch(() => setStatus('invalid'))
-  }, [authUser, token, navigate, status])
+  }, [authUser, token, status, switchWorkspace])
 
   // Not signed in — prompt to sign in first (the join finishes automatically
   // once authUser becomes truthy, since the hash route survives the auth gate)
@@ -42,7 +42,7 @@ export function JoinPage() {
           <p style={{ color: 'var(--text-muted)', marginBottom: '24px' }}>
             {workspaceName ? `Sign in or create an account to join "${workspaceName}".` : 'Sign in or create an account to join this workspace.'}
           </p>
-          <a href="#/" className="primary-button" style={{ textDecoration: 'none', display: 'inline-block' }}>
+          <a href="#/" onClick={() => sessionStorage.setItem('qa_pending_invite', token)} className="primary-button" style={{ textDecoration: 'none', display: 'inline-block' }}>
             Sign in to continue
           </a>
         </div>

@@ -65,5 +65,11 @@ export function useTestCases(projectId) {
     return updated
   }, [projectId])
 
-  return { testCases, loading, addTestCase, removeTestCase, removeTestCases, updateTestCase, refresh }
+  const updateTestExecution = useCallback(async (id, changes) => {
+    const updated = fromApi(await api.patch(`/projects/${projectId}/test-cases/${id}`, changes))
+    setTestCases((prev) => prev.map((tc) => (tc.id === id ? updated : tc)))
+    return updated
+  }, [projectId])
+
+  return { testCases, loading, addTestCase, removeTestCase, removeTestCases, updateTestCase, updateTestExecution, refresh }
 }

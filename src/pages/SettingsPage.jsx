@@ -15,11 +15,10 @@ import {
   ActionIcon,
   Divider,
   CopyButton,
-  Tooltip,
   Alert,
   Timeline,
 } from '@mantine/core'
-import { XIcon, CheckIcon } from '../components/Icons'
+import { XIcon } from '../components/Icons'
 import { PageHeader } from '../components/PageHeader'
 import { useConfirm } from '../context/useConfirm'
 import { useToast } from '../context/useToast'
@@ -31,8 +30,7 @@ import { useTestCases } from '../hooks/useTestCases'
 import { useBugs } from '../hooks/useBugs'
 import { useTestRuns } from '../hooks/useTestRuns'
 import { getJiraSettings, saveJiraSettings } from '../utils/storage'
-import { isFirebaseEnabled } from '../utils/firebase'
-import { getOrCreateProjectInviteToken, revokeProjectInviteToken } from '../utils/remoteStorage'
+import { api } from '../api/client'
 
 export function SettingsPage() {
   const { projectId } = useParams()
@@ -78,11 +76,10 @@ export function SettingsPage() {
   }
 
   const handleGenerateInvite = async () => {
-    if (!isFirebaseEnabled) { toast.error('Invite links require Firebase.'); return }
     setInviteLoading(true)
     try {
-      const token = await getOrCreateProjectInviteToken(projectId)
-      const link = `${window.location.origin}${window.location.pathname}#/join/${token}`
+      const workspace = await api.post('/workspace/invite-link', {})
+      const link = `${window.location.origin}${window.location.pathname}#/join/${workspace.inviteToken}`
       setInviteLink(link)
       await navigator.clipboard.writeText(link)
       toast.success('Invite link copied to clipboard!')
@@ -96,7 +93,7 @@ export function SettingsPage() {
   const handleRevokeInvite = async () => {
     const ok = await confirm({ title: 'Revoke invite link?', message: 'The current invite link will stop working. You can generate a new one anytime.', confirmLabel: 'Revoke', danger: true })
     if (!ok) return
-    await revokeProjectInviteToken(projectId)
+    await api.delete('/workspace/invite-link')
     setInviteLink('')
     toast.success('Invite link revoked.')
   }
@@ -316,12 +313,12 @@ export function SettingsPage() {
         )}
       </Card>
 
-      {/* ─── Invite to Project ─── */}
+      {/* ─── Invite to Workspace ─── */}
       {isLead && (
         <Card shadow="sm" padding="lg" radius="md" withBorder mb="md" bg="var(--surface)" style={{ borderColor: 'var(--border)' }}>
-          <Title order={4} mb="xs" style={{ fontFamily: 'var(--heading)', color: 'var(--text-strong)' }}>Invite to project</Title>
+          <Title order={4} mb="xs" style={{ fontFamily: 'var(--heading)', color: 'var(--text-strong)' }}>Invite to workspace</Title>
           <Text size="xs" c="dimmed" mb="md">
-            Share this link to invite teammates directly into <strong>{project.name}</strong>. They'll be added as Viewer and can only access this project.
+            Share this link to invite teammates into the workspace containing <strong>{project.name}</strong>. They'll join as Viewers and can see the workspace's projects.
           </Text>
 
           <Group gap="sm" wrap="wrap">

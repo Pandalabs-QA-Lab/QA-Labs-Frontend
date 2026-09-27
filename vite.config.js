@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import process from 'node:process'
 
 // Vercel serves the app from its domain root, but the GitHub Pages workflow
 // (.github/workflows/deploy.yml) still needs the /pandalabs/ subpath - Vercel

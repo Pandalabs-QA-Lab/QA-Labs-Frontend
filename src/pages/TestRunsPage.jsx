@@ -16,6 +16,7 @@ import { useTestPlans } from '../hooks/useTestPlans'
 import { useRequirements } from '../hooks/useRequirements'
 import { useSharedSteps } from '../hooks/useSharedSteps'
 import { historyEntry, withHistory } from '../utils/history'
+import { useUserRole } from '../hooks/useUserRole'
 import { newId } from '../utils/id'
 import { clearRunDraft, getRunDraft, saveRunDraft } from '../utils/runDrafts'
 import { STATUS_TONE, TEST_STATUSES, summarizeStatuses } from '../utils/status'
@@ -102,7 +103,8 @@ export function TestRunsPage() {
   const confirm = useConfirm()
   const toast = useToast()
   const { projects } = useProjects()
-  const { testCases, updateTestCase } = useTestCases(projectId)
+  const { testCases, updateTestCase, updateTestExecution } = useTestCases(projectId)
+  const { isLead, isViewer } = useUserRole()
   const { bugs, addBug, updateBug } = useBugs(projectId)
   const { runs, addRun, refresh } = useTestRuns(projectId)
   const { plans, linkRunToPlan } = useTestPlans(projectId)
@@ -467,22 +469,14 @@ export function TestRunsPage() {
     const newResult = { ...currentResult, ...patch }
     setResults((prev) => ({ ...prev, [currentCase.id]: newResult }))
     if ('status' in patch && patch.status !== currentCase.status) {
-      updateTestCase({
-        ...currentCase,
-        status: newResult.status,
-        updatedAt: new Date().toISOString(),
-        updatedBy: user,
-      })
+      updateTestExecution(currentCase.id, { status: newResult.status })
     }
   }
 
   const finishRun = async () => {
     const executed = selectedCases.map((tc) => {
       const result = results[tc.id] ?? { status: tc.status ?? 'Not Executed', actual: tc.actual ?? '' }
-      updateTestCase(withHistory(
-        { ...tc, status: result.status, actual: result.actual, updatedAt: new Date().toISOString(), updatedBy: user },
-        historyEntry('execution', user, `Executed in run as ${result.status}`, tc.status, result.status),
-      ))
+      updateTestExecution(tc.id, { status: result.status, actual: result.actual })
       return {
         testCaseId: tc.id,
         title: tc.title,
@@ -667,12 +661,7 @@ export function TestRunsPage() {
           },
         }))
         if (status !== currentCase.status) {
-          updateTestCase({
-            ...currentCase,
-            status,
-            updatedAt: new Date().toISOString(),
-            updatedBy: user,
-          })
+          updateTestExecution(currentCase.id, { status })
         }
       }
       if (event.key === 'p' || event.key === 'P') setShortcutStatus('Pass')
@@ -688,7 +677,7 @@ export function TestRunsPage() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [bugForm, currentCase, mode, selectedCases.length, updateTestCase, user])
+  }, [bugForm, currentCase, mode, selectedCases.length, updateTestExecution])
 
   // Derive a human-readable draft age string for the banner
   const draftAge = activeDraft?.startedAt
@@ -702,7 +691,7 @@ export function TestRunsPage() {
         backTo={`/projects`}
         title="Test runs"
         description="Select test cases, execute them, and save run history for release reporting."
-        action={
+        action={!isViewer &&
           <button
             className="secondary-button"
             type="button"
@@ -759,7 +748,7 @@ export function TestRunsPage() {
             <div className="run-selection-actions">
               <button className="secondary-button" type="button" onClick={() => setSelectedIds(testCases.map((tc) => tc.id))}>Select all</button>
               <button className="secondary-button" type="button" onClick={() => setSelectedIds([])}>Clear</button>
-              <button className="primary-button" type="button" disabled={selectedIds.length === 0} onClick={startRun}>
+              <button className="primary-button" type="button" disabled={isViewer || selectedIds.length === 0} onClick={startRun}>
                 Start run ({selectedIds.length})
               </button>
             </div>
@@ -918,6 +907,7 @@ export function TestRunsPage() {
                           className={`inline-select status-select priority-${(tc.priority || 'med').toLowerCase()}`}
                           value={tc.priority || 'Med'}
                           aria-label={`Priority for ${tc.title}`}
+                          disabled={!isLead}
                           onChange={(e) => updateTestCase(withHistory(
                             { ...tc, priority: e.target.value, updatedAt: new Date().toISOString(), updatedBy: user },
                             historyEntry('priority', user, `Priority changed to ${e.target.value}`, tc.priority, e.target.value),
@@ -931,10 +921,8 @@ export function TestRunsPage() {
                           className={`inline-select status-select status-select--${STATUS_TONE[tc.status] ?? 'pending'}`}
                           value={tc.status}
                           aria-label={`Status for ${tc.title}`}
-                          onChange={(e) => updateTestCase(withHistory(
-                            { ...tc, status: e.target.value, updatedAt: new Date().toISOString(), updatedBy: user },
-                            historyEntry('status', user, `Status changed to ${e.target.value}`, tc.status, e.target.value),
-                          ))}
+                          disabled={isViewer}
+                          onChange={(e) => updateTestExecution(tc.id, { status: e.target.value })}
                         >
                           {TEST_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                         </select>
@@ -1006,6 +994,7 @@ export function TestRunsPage() {
                       className={`inline-select status-select priority-${(tc.priority || 'medium').toLowerCase()}`}
                       value={tc.priority || 'Medium'}
                       aria-label={`Priority for ${tc.title}`}
+                      disabled={!isLead}
                       onChange={(e) => updateTestCase(withHistory(
                         { ...tc, priority: e.target.value, updatedAt: new Date().toISOString(), updatedBy: user },
                         historyEntry('priority', user, `Priority changed to ${e.target.value}`, tc.priority, e.target.value),
@@ -1017,10 +1006,8 @@ export function TestRunsPage() {
                       className={`inline-select status-select status-select--${STATUS_TONE[tc.status] ?? 'neutral'}`}
                       value={tc.status}
                       aria-label={`Status for ${tc.title}`}
-                      onChange={(e) => updateTestCase(withHistory(
-                        { ...tc, status: e.target.value, updatedAt: new Date().toISOString(), updatedBy: user },
-                        historyEntry('status', user, `Status changed to ${e.target.value}`, tc.status, e.target.value),
-                      ))}
+                      disabled={isViewer}
+                      onChange={(e) => updateTestExecution(tc.id, { status: e.target.value })}
                     >
                       {TEST_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>

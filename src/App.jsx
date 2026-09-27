@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { MantineProvider, createTheme } from '@mantine/core'
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -30,6 +30,8 @@ import { TestRunsPage } from './pages/TestRunsPage'
 import { TestPlansPage } from './pages/TestPlansPage'
 import { ActivityPage } from './pages/ActivityPage'
 import { WorkspaceSettingsPage } from './pages/WorkspaceSettingsPage'
+import { WorkspaceWelcomePage } from './pages/WorkspaceWelcomePage'
+import { AdminPage } from './pages/AdminPage'
 import './App.css'
 
 const mantineTheme = createTheme({
@@ -61,7 +63,7 @@ const appRoutes = (
     <Route path="/projects" element={<ProjectsPage />} />
     <Route path="/reports" element={<ReportsPage />} />
     <Route path="/activity" element={<ActivityPage />} />
-    <Route path="/backup" element={<BackupPage />} />
+    <Route path="/backup" element={<LeadOnly><BackupPage /></LeadOnly>} />
     <Route path="/projects/:projectId/dashboard" element={<ProjectDashboardPage />} />
     <Route path="/projects/:projectId/test-cases" element={<TestCasesPage />} />
     <Route path="/projects/:projectId/test-cases/:testCaseId" element={<TestCaseDetailPage />} />
@@ -75,14 +77,27 @@ const appRoutes = (
     <Route path="/projects/:projectId/reports" element={<ProjectReportsPage />} />
     <Route path="/projects/:projectId/settings" element={<SettingsPage />} />
     <Route path="/workspace/settings" element={<WorkspaceSettingsPage />} />
+    <Route path="/workspaces" element={<WorkspaceWelcomePage />} />
+    <Route path="/admin" element={<AdminPage />} />
     <Route path="/join/:token" element={<JoinPage />} />
     <Route path="*" element={<Navigate to="/dashboard" replace />} />
   </Routes>
 )
 
+function LeadOnly({ children }) {
+  const { role } = useAuth()
+  return role === 'QA_LEAD' ? children : <Navigate to="/dashboard" replace />
+}
+
 function AppShell() {
-  const { authUser, loading } = useAuth()
-  const hash = window.location.hash
+  const { authUser, workspace, loading } = useAuth()
+  const [hash, setHash] = useState(window.location.hash)
+
+  useEffect(() => {
+    const onHashChange = () => setHash(window.location.hash)
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [])
 
   // Public report links must be viewable with zero authentication - external
   // stakeholders may never have an account. Bypass the auth gate entirely.
@@ -134,6 +149,21 @@ function AppShell() {
     return <AuthPage />
   }
 
+  if (hash.startsWith('#/join/')) {
+    return <HashRouter><Routes><Route path="/join/:token" element={<JoinPage />} /></Routes></HashRouter>
+  }
+
+  if (hash.startsWith('#/workspaces')) return <WorkspaceWelcomePage />
+
+  // Platform admins land in administration, even without a workspace.
+  // An admin who also belongs to a workspace can explicitly open its app.
+  if (authUser.isPlatformAdmin &&
+    (!workspace || hash === '' || hash === '#/' || hash.startsWith('#/admin'))) {
+    return <AdminPage />
+  }
+
+  if (!workspace) return <WorkspaceWelcomePage />
+
   return (
     <WorkspaceGate>
       <HashRouter>
@@ -148,13 +178,15 @@ function AppShell() {
   )
 }
 
+
 // Shown once for a brand-new workspace with no projects yet; dismissing it
 // (finish or skip) is remembered in localStorage so it never reappears.
 function OnboardingGate() {
+  const { role } = useAuth()
   const { projects, loading } = useProjects()
   const [dismissed, setDismissed] = useState(() => !!localStorage.getItem('qa_onboarding_dismissed'))
 
-  if (dismissed || loading || projects.length > 0) return null
+  if (role !== 'QA_LEAD' || dismissed || loading || projects.length > 0) return null
 
   return (
     <OnboardingWizard onComplete={() => {

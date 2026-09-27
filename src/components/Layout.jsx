@@ -113,6 +113,12 @@ function UserPill() {
           <Link className="user-dropdown-item" to="/workspace/settings" onClick={() => setOpen(false)} style={{ textDecoration: 'none' }}>
             Workspace Settings
           </Link>
+          <a className="user-dropdown-item" href="#/workspaces" onClick={() => setOpen(false)} style={{ textDecoration: 'none' }}>
+            Switch workspace
+          </a>
+          {authUser?.isPlatformAdmin && <a className="user-dropdown-item" href="#/admin" onClick={() => setOpen(false)} style={{ textDecoration: 'none' }}>
+            Platform admin
+          </a>}
           <button
             className="user-dropdown-item user-dropdown-item--danger"
             role="menuitem"
@@ -390,6 +396,7 @@ function ScrollToTop() {
 }
 
 export function Layout({ children }) {
+  const { isLead } = useUserRole()
   const { pathname } = useLocation()
   const match = pathname.match(/^\/projects\/([^/]+)/)
   const projectId = match?.[1]
@@ -413,7 +420,7 @@ export function Layout({ children }) {
         </NavLink>
 
         <nav className="topnav" aria-label="Main navigation">
-          {globalNav.map((item) => (
+          {globalNav.filter((item) => item.to !== '/backup' || isLead).map((item) => (
             <NavLink key={item.to} to={item.to}>
               <Icon name={item.icon} />
               <span>{item.label}</span>

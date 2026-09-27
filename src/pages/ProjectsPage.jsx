@@ -99,7 +99,7 @@ export function ProjectsPage() {
       {projects.length === 0 ? (
         <section className="empty-state">
           <h2>No projects yet</h2>
-          <p>Click "New project" to create your first QA workspace.</p>
+          <p>{isLead ? 'Create your first project to begin.' : 'No projects are available in this workspace yet.'}</p>
         </section>
       ) : (
         <section className="proj-grid">

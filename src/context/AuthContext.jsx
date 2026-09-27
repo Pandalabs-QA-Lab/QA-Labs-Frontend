@@ -41,9 +41,19 @@ export function AuthProvider({ children }) {
   }, [clearSession])
 
   const login = async (email, password) => {
-    const session = await api.post('/auth/login', { email, password })
+    let session = await api.post('/auth/login', { email, password })
     setToken(session.token)
+    const preferredWorkspace = localStorage.getItem('qa_last_workspace')
+    if (preferredWorkspace && session.workspace?.id !== preferredWorkspace) {
+      try {
+        session = await api.post(`/auth/workspaces/${preferredWorkspace}/select`, {})
+        setToken(session.token)
+      } catch {
+        localStorage.removeItem('qa_last_workspace')
+      }
+    }
     applySession(session)
+    return session
   }
 
   const register = async (email, password, displayName) => {
@@ -61,6 +71,14 @@ export function AuthProvider({ children }) {
     setAuthUser((prev) => ({ ...prev, displayName: user.displayName }))
   }
 
+  const switchWorkspace = async (workspaceId) => {
+    const session = await api.post(`/auth/workspaces/${workspaceId}/select`, {})
+    setToken(session.token)
+    localStorage.setItem('qa_last_workspace', workspaceId)
+    applySession(session)
+    return session
+  }
+
   return (
     <AuthContext.Provider value={{
       authUser,
@@ -71,6 +89,7 @@ export function AuthProvider({ children }) {
       register,
       signOut,
       updateDisplayName,
+      switchWorkspace,
     }}>
       {children}
     </AuthContext.Provider>

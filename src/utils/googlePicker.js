@@ -1,5 +1,3 @@
-import { newId } from './id'
-
 let gapiLoaded = false
 let gisLoaded = false
 let tokenClient = null
@@ -17,7 +15,7 @@ function loadScript(src) {
     script.async = true
     script.defer = true
     script.onload = () => resolve()
-    script.onerror = (err) => reject(new Error(`Failed to load script: ${src}`))
+    script.onerror = () => reject(new Error(`Failed to load script: ${src}`))
     document.head.appendChild(script)
   })
 }

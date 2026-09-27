@@ -19,10 +19,20 @@ export function AuthPage() {
     setLoading(true)
     clearError()
     try {
+      let session
       if (mode === 'login') {
-        await login(email, password)
+        session = await login(email, password)
       } else {
-        await register(email, password, displayName)
+        session = await register(email, password, displayName)
+      }
+      const pendingInvite = sessionStorage.getItem('qa_pending_invite')
+      if (pendingInvite) {
+        sessionStorage.removeItem('qa_pending_invite')
+        window.location.hash = `#/join/${encodeURIComponent(pendingInvite)}`
+      } else if (session?.user.isPlatformAdmin) {
+        window.location.hash = '#/admin'
+      } else if (window.location.hash.startsWith('#/admin')) {
+        window.location.hash = '#/'
       }
     } catch (err) {
       setError(err.message || 'Something went wrong. Please try again.')

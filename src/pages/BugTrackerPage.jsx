@@ -282,7 +282,7 @@ export function BugTrackerPage() {
   const { projectId } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
   const { user } = useUser()
-  const { isTester, isViewer } = useUserRole()
+  const { isLead, isViewer } = useUserRole()
   const { bugs, addBug, removeBug, updateBug } = useBugs(projectId)
   const { testCases } = useTestCases(projectId)
   const { requirements } = useRequirements(projectId)
@@ -663,7 +663,7 @@ export function BugTrackerPage() {
                           Jira
                         </button>
                       )}
-                      {!isTester && (
+                      {isLead && (
                         <button
                           className="row-delete"
                           type="button"
@@ -756,7 +756,7 @@ export function BugTrackerPage() {
                   <button className="secondary-button mobile-card-action-btn" type="button" onClick={() => openEdit(bug)}>
                     Open & Edit
                   </button>
-                  {!isTester && (
+                  {isLead && (
                     <button className="danger-button mobile-card-action-btn" type="button"
                       onClick={async () => {
                         const ok = await confirm({ title: 'Delete bug?', message: `"${bug.title}" will be permanently removed.`, confirmLabel: 'Delete', danger: true })
