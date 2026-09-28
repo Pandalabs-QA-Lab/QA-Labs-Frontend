@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useId } from 'react'
+import { createPortal } from 'react-dom'
 import { XIcon } from './Icons'
 
 export function Modal({ title, onClose, children, style, closeOnBackdrop = true }) {
@@ -29,7 +30,7 @@ export function Modal({ title, onClose, children, style, closeOnBackdrop = true 
     }
   }
 
-  return (
+  return createPortal(
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={handleBackdropClick}>
       <div className="modal" style={style} role="document">
         <div className="modal-header">
@@ -40,6 +41,7 @@ export function Modal({ title, onClose, children, style, closeOnBackdrop = true 
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

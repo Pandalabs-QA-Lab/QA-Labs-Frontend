@@ -1,50 +1,65 @@
-let gapiLoaded = false
-let gisLoaded = false
-let tokenClient = null
+const scriptPromises = new Map()
+let pickerPromise = null
 let currentAccessToken = null
+let accessTokenExpiresAt = 0
 
 // Helper to dynamically load external script tags
 function loadScript(src) {
-  return new Promise((resolve, reject) => {
-    if (document.querySelector(`script[src="${src}"]`)) {
-      resolve()
-      return
-    }
+  if (scriptPromises.has(src)) return scriptPromises.get(src)
+
+  const promise = new Promise((resolve, reject) => {
     const script = document.createElement('script')
     script.src = src
     script.async = true
     script.defer = true
-    script.onload = () => resolve()
-    script.onerror = () => reject(new Error(`Failed to load script: ${src}`))
+    const fail = () => {
+      clearTimeout(timeout)
+      scriptPromises.delete(src)
+      script.remove()
+      reject(new Error('Could not load Google Drive. Check your connection and try again.'))
+    }
+    const timeout = setTimeout(fail, 12000)
+    script.onload = () => {
+      clearTimeout(timeout)
+      resolve()
+    }
+    script.onerror = fail
     document.head.appendChild(script)
   })
+  scriptPromises.set(src, promise)
+  return promise
 }
 
 // Load Google API Client (gapi) and Google Identity Services (gis) SDKs
 export async function loadGoogleSDKs() {
-  if (gapiLoaded && gisLoaded) return
-
   await Promise.all([
     loadScript('https://apis.google.com/js/api.js'),
     loadScript('https://accounts.google.com/gsi/client')
   ])
-
-  gapiLoaded = true
-  gisLoaded = true
 }
 
 // Initialize Picker API
 function initPicker() {
-  return new Promise((resolve, reject) => {
+  if (pickerPromise) return pickerPromise
+  pickerPromise = new Promise((resolve, reject) => {
     if (!window.gapi) {
       reject(new Error('Google API Client (gapi) is not loaded.'))
       return
     }
+    const timeout = setTimeout(() => reject(new Error('Google Drive picker took too long to load. Please try again.')), 12000)
     window.gapi.load('picker', {
-      callback: () => resolve(),
-      onerror: () => reject(new Error('Failed to load Google Picker library.'))
+      callback: () => {
+        clearTimeout(timeout)
+        resolve()
+      },
+      onerror: () => {
+        clearTimeout(timeout)
+        reject(new Error('Failed to load Google Picker library.'))
+      }
     })
   })
+  pickerPromise.catch(() => { pickerPromise = null })
+  return pickerPromise
 }
 
 // Main function to authenticate and open the Google Picker dialog.
@@ -55,13 +70,20 @@ function initPicker() {
 export function openGooglePicker(onPicked, onError, options = {}) {
   const apiKey = import.meta.env.VITE_GOOGLE_PICKER_API_KEY
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
+  const projectNumber = import.meta.env.VITE_GOOGLE_CLOUD_PROJECT_NUMBER
 
-  if (!apiKey || !clientId) {
+  if (!apiKey || !clientId || !projectNumber) {
     if (onError) {
-      onError('Google Picker API configuration is missing in environment variables.')
+      onError('Google Drive import has not been connected yet. Please contact your administrator.')
     } else {
-      console.error('VITE_GOOGLE_PICKER_API_KEY or VITE_GOOGLE_CLIENT_ID is not configured.')
+      console.error('Google Picker configuration is incomplete.')
     }
+    return
+  }
+
+  // Google Picker itself has a 566 × 350 minimum dialog size.
+  if (window.innerWidth < 590 || window.innerHeight < 374) {
+    if (onError) onError('Google Drive picker needs a larger screen. Use a tablet or desktop, or choose another import option.')
     return
   }
 
@@ -69,32 +91,33 @@ export function openGooglePicker(onPicked, onError, options = {}) {
     .then(() => initPicker())
     .then(() => {
       // If we already have an access token, launch the picker directly
-      if (currentAccessToken) {
+      if (currentAccessToken && Date.now() < accessTokenExpiresAt) {
         launchPicker(currentAccessToken, onPicked, options)
         return
       }
 
-      // Initialize Google Identity Services (OAuth2) Token Client
-      if (!tokenClient) {
-        tokenClient = window.google.accounts.oauth2.initTokenClient({
-          client_id: clientId,
-          scope: 'https://www.googleapis.com/auth/drive.file',
-          callback: (response) => {
-            if (response.error) {
-              if (onError) onError(`Google Authentication failed: ${response.error}`)
-              return
-            }
-            if (response.access_token) {
-              currentAccessToken = response.access_token
-              launchPicker(currentAccessToken, onPicked, options)
-            }
-          },
-        })
-      }
+      // Each pick needs its own callback and options.
+      const tokenClient = window.google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: 'https://www.googleapis.com/auth/drive.file',
+        callback: (response) => {
+          if (response.error) {
+            if (onError) onError(`Google authentication failed: ${response.error}`)
+            return
+          }
+          if (response.access_token) {
+            currentAccessToken = response.access_token
+            accessTokenExpiresAt = Date.now() + Math.max(0, (response.expires_in || 0) - 60) * 1000
+            launchPicker(currentAccessToken, onPicked, options)
+          }
+        },
+        error_callback: () => {
+          if (onError) onError('Google sign-in was interrupted. Please try again.')
+        },
+      })
 
-      // Request token. prompt: '' attempts to retrieve a token silently if previously authorized,
-      // falling back to a popup prompt if needed.
-      tokenClient.requestAccessToken({ prompt: '' })
+      // Ask for consent for a new session, then reuse the grant on refresh.
+      tokenClient.requestAccessToken({ prompt: currentAccessToken ? '' : 'consent' })
     })
     .catch((err) => {
       console.error('[GooglePicker]', err)
@@ -114,11 +137,17 @@ const SHEET_MIME_TYPES = [
 function launchPicker(accessToken, onPicked, options = {}) {
   const { mode = 'all', multiple = false } = options
   const apiKey = import.meta.env.VITE_GOOGLE_PICKER_API_KEY
+  const projectNumber = import.meta.env.VITE_GOOGLE_CLOUD_PROJECT_NUMBER
   const { picker: Picker } = window.google
 
   const builder = new Picker.PickerBuilder()
     .setOAuthToken(accessToken)
     .setDeveloperKey(apiKey)
+    .setAppId(projectNumber)
+    .setSize(
+      Math.max(566, Math.min(960, window.innerWidth - 24)),
+      Math.max(350, Math.min(650, window.innerHeight - 24))
+    )
     .enableFeature(Picker.Feature.SUPPORT_DRIVES)
     .setCallback((data) => {
       if (data.action !== Picker.Action.PICKED) return

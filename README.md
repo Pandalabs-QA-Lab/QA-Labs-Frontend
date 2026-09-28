@@ -1,93 +1,33 @@
-# QA Lab
+# QA Lab frontend
 
-QA Lab is a modern, fast, and lightweight test management dashboard designed for QA teams to track projects, test cases, bug reports, and test runs without the enterprise clutter of traditional tools.
+React 19 and Vite 8 frontend for QA Lab. The Express API in the sibling [backend repository](https://github.com/Pandalabs-QA-Lab/QA-Labs-Backend) handles accounts, workspace access, projects, and uploads. Keep the repositories separate so each can be built and deployed independently.
 
-## Features
+## Run locally
 
-- **Dashboard**: Track overall metrics, project test pass rates, latest bug status, and recent activity.
-- **Projects Management**: Organize test efforts by creating, editing, and managing multiple projects.
-- **Test Case Management**: Define test suites, modules, priorities, preconditions, steps, expected results, and track execution status.
-- **Bug Tracker**: Report bugs, link them to failed test cases, assign severities, manage lifecycles, and view bug history logs.
-- **Test Runs**: Group and execute test runs (e.g., regressions or smoke tests) and capture metrics.
-- **Team Management**: Manage project members and assignees.
-- **Backup & Restore**: Easily export/import all your workspace data to a local JSON file.
-- **Dual Storage Modes**:
-  - **Local Mode (Default)**: Saves all data securely in your browser's local storage. Great for individual testing.
-  - **Firebase/Sync Mode**: Enable real-time sync across team members by configuring Firebase/Firestore database.
+1. Start PostgreSQL and the backend using its [setup instructions](https://github.com/Pandalabs-QA-Lab/QA-Labs-Backend#run-locally). The API should respond at `http://localhost:4000/api/health`.
+2. Install Node.js 22 or later and run:
 
----
+   ```powershell
+   npm ci
+   Copy-Item .env.example .env
+   npm run dev -- --host 127.0.0.1
+   ```
 
-## Local Setup
+3. Open `http://localhost:5173/QA-Labs-Frontend/`. Set `VITE_API_BASE_URL=http://localhost:4000/api` in `.env` if using the default backend port. Restart Vite after changing `.env`.
 
-### 1. Prerequisites
-- [Node.js](https://nodejs.org/) (v22 or later recommended)
-- npm (installed with Node)
+The app opens on a public landing/sign-in page. New accounts do not automatically get a workspace. A platform admin can approve workspace requests or users can accept an invite; roles are enforced by the backend. Admin rights are granted from a trusted backend shell, not by choosing an email in the browser.
 
-### 2. Installation
-Clone this repository to your local machine:
-```bash
-git clone <repository-url>
-cd QA-labs
-```
+## Configuration
 
-Install project dependencies:
-```bash
-npm install
-```
+The committed `.env.example` lists all local variables. Keep `.env` out of Git. The Google Drive picker needs an OAuth web client ID, a browser API key, and the numeric Google Cloud project number from the same project. See [Google Drive setup](GOOGLE_DRIVE_SETUP.md) for Cloud Console and deployment steps. Firebase variables are optional for the legacy Firestore sync path; the current account and access flow requires the Express API.
 
-### 3. Environment Configuration
-Copy the template environment file:
-```bash
-cp .env.example .env
-```
+## Checks and deployment
 
-Open `.env` in your editor and fill in your keys:
-- If you want to use the **Local-only Mode**, you can leave the Firebase keys blank or commented out.
-- If you want **Firebase/Firestore Mode**, provide your web app credentials:
-
-```env
-VITE_FIREBASE_API_KEY=your_api_key
-VITE_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
-VITE_FIREBASE_PROJECT_ID=your_project_id
-VITE_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
-VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
-VITE_FIREBASE_APP_ID=your_app_id
-VITE_QA_WORKSPACE_ID=pandalabs-main
-```
-
-### 4. Running Locally
-Start the local development server:
-```bash
-npm run dev
-```
-Open your browser and navigate to `http://localhost:5173` (or the port specified in the terminal).
-
-### 5. Production Build
-To build the project for production:
-```bash
+```powershell
+npm run lint
 npm run build
 ```
-The output files will be built inside the `/dist` directory.
 
----
+`dist/` is generated and ignored. The GitHub Pages workflow builds on pushes to `main` and serves the app under `/QA-Labs-Frontend/`; Vercel builds serve it at `/`. GitHub Actions uses repository variables. The checked-in `.env.production` supplies the hosted API URL and Google Picker's browser-visible values for Vercel builds. The Picker API key must remain restricted by website and API in Google Cloud.
 
-## Firebase Setup
-
-To successfully sync data across multiple devices:
-1. Enable **Firestore Database** in your Firebase console.
-2. In **Firebase Console → Authentication**, click **Get Started** and enable the following Sign-in methods:
-   - **Email/Password**
-   - **Anonymous** (required for "Continue as guest")
-   - **Google** (optional)
-3. Set your Firestore rules (during testing or inside a private team environment) to allow read/write access under the workspace path. See [FIREBASE_SETUP.md](./FIREBASE_SETUP.md) for more details.
-
----
-
-## Deployment
-
-This project is configured to build and deploy to **GitHub Pages** automatically on every push to the `main` branch using GitHub Actions.
-
-### Steps to enable Deployment on your Repository:
-1. Navigate to your GitHub repository **Settings** -> **Pages**.
-2. Change the **Source** under "Build and deployment" from "Deploy from a branch" to **GitHub Actions**.
-3. Under repository **Settings** -> **Secrets and variables** -> **Actions** -> **Variables** tab, add your Firebase environment credentials as Repository Variables (e.g., `VITE_FIREBASE_API_KEY`, etc.), so the build process can bundle them.
+Additional project notes: [data model](DATA_MODEL.md), [user flow](flow.md), and [tech stack](tech-stack.md).

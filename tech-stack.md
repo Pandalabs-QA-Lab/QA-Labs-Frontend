@@ -107,6 +107,7 @@ workspaces/{workspaceId}/
 ```env
 VITE_GOOGLE_PICKER_API_KEY    # Browser-restricted API key for Picker widget
 VITE_GOOGLE_CLIENT_ID         # OAuth 2.0 Client ID for Google Sign-In & Drive
+VITE_GOOGLE_CLOUD_PROJECT_NUMBER # Numeric Cloud project number (Picker app ID)
 ```
 
 ---
