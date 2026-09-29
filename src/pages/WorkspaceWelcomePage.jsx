@@ -8,6 +8,7 @@ export function WorkspaceWelcomePage() {
   const { authUser, signOut, switchWorkspace } = useAuth()
   const [workspaces, setWorkspaces] = useState([])
   const [requests, setRequests] = useState([])
+  const [invitations, setInvitations] = useState([])
   const [kind, setKind] = useState('TEAM')
   const [workspaceName, setWorkspaceName] = useState('')
   const [projectName, setProjectName] = useState('')
@@ -26,11 +27,12 @@ export function WorkspaceWelcomePage() {
       })))
       return
     }
-    const [available, mine] = await Promise.all([
-      api.get('/auth/workspaces'), api.get('/access/requests/mine'),
+    const [available, mine, pending] = await Promise.all([
+      api.get('/auth/workspaces'), api.get('/access/requests/mine'), api.get('/invites/pending'),
     ])
     setWorkspaces(available)
     setRequests(mine)
+    setInvitations(pending)
   }, [authUser])
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- state changes after the API reads resolve
@@ -49,16 +51,11 @@ export function WorkspaceWelcomePage() {
     } catch (err) { setError(err.message); setBusy(false) }
   }
 
-  const join = async (event) => {
+  const join = (event) => {
     event.preventDefault()
     const token = invite.trim().match(/\/join\/([^/?#]+)/)?.[1] || invite.trim()
     if (!token) return
-    setBusy(true)
-    setError('')
-    try {
-      const joined = await api.post(`/invites/${encodeURIComponent(token)}/accept`, {})
-      await selectWorkspace(joined.workspaceId)
-    } catch (err) { setError(err.message); setBusy(false) }
+    window.location.hash = `#/join/${encodeURIComponent(token)}`
   }
 
   const submitRequest = async (event) => {
@@ -113,6 +110,14 @@ export function WorkspaceWelcomePage() {
             <button type="button" className="secondary-button" disabled={busy} onClick={() => selectWorkspace(item.id)}>
               Open {item.name} · {item.role.replace('_', ' ')}
             </button>
+          </div>)}
+        </section>}
+
+        {invitations.length > 0 && <section className="welcome-section">
+          <h2>Your invitations</h2>
+          {invitations.map((item) => <div className="welcome-workspace" key={item.id}>
+            <span>{item.projectName ? `${item.projectName} · ${item.workspaceName}` : item.workspaceName}</span>
+            <a className="secondary-button" href={`#/join/${item.token}`}>Review invitation</a>
           </div>)}
         </section>}
 

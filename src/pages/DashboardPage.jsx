@@ -1,6 +1,6 @@
-import { useMemo, useRef, useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { motion, useReducedMotion, useInView, animate } from 'motion/react'
+import { motion, useReducedMotion } from 'motion/react'
 import { Modal } from '../components/Modal'
 import { PageHeader } from '../components/PageHeader'
 import { StatusPill } from '../components/StatusPill'
@@ -23,27 +23,6 @@ function QuickActionIcon({ name }) {
     report: <><path d="M4 19V5" /><path d="M20 19H4" /><path d="M8 15v-4" /><path d="M13 15V8" /><path d="M18 15v-6" /></>,
   }
   return <svg {...common}>{paths[name]}</svg>
-}
-
-/** Animated number that counts up from 0 the first time it scrolls into view. */
-function CountUp({ value, suffix = '' }) {
-  const reduce = useReducedMotion()
-  const ref = useRef(null)
-  const inView = useInView(ref, { once: true, amount: 0.5 })
-  const [display, setDisplay] = useState(0)
-
-  useEffect(() => {
-    if (reduce || !inView) return undefined
-    const controls = animate(0, value, {
-      duration: 0.9,
-      ease: [0.22, 1, 0.36, 1],
-      onUpdate: (v) => setDisplay(Math.round(v)),
-    })
-    return () => controls.stop()
-  }, [inView, value, reduce])
-
-  // Reduced motion (or before first count) shows the final value directly.
-  return <span ref={ref}>{reduce ? value : display}{suffix}</span>
 }
 
 export function DashboardPage() {
@@ -70,7 +49,11 @@ export function DashboardPage() {
       const bugs = getBugs(p.id)
       const runs = getTestRuns(p.id)
       const metrics = getProjectReportMetrics({ project: p, testCases: cases, bugs, runs })
-      return { ...p, cases: metrics.total, openBugs: metrics.openBugs, passRate: metrics.passRate, latestRun: metrics.latestRun }
+      const health = metrics.executed === 0
+        ? { label: metrics.total === 0 ? 'No cases' : 'Not started', tone: 'neutral' }
+        : metrics.health
+      return { ...p, cases: metrics.total, executed: metrics.executed, openBugs: metrics.openBugs,
+        passRate: metrics.passRate, latestRun: metrics.latestRun, health }
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- dataVersion intentionally re-runs this cache-backed read as prefetch lands
   }, [projects, dataVersion])
@@ -78,16 +61,17 @@ export function DashboardPage() {
   const totalCases = useMemo(() => enriched.reduce((s, p) => s + p.cases, 0), [enriched])
   const totalOpenBugs = useMemo(() => enriched.reduce((s, p) => s + p.openBugs, 0), [enriched])
   const avgPassRate = useMemo(() => {
-    return enriched.length
-      ? Math.round(enriched.reduce((s, p) => s + p.passRate, 0) / enriched.length)
-      : 0
+    const measured = enriched.filter((project) => project.executed > 0)
+    return measured.length
+      ? Math.round(measured.reduce((sum, project) => sum + project.passRate, 0) / measured.length)
+      : null
   }, [enriched])
 
   const metrics = useMemo(() => [
     { label: 'Projects', value: projects.length, suffix: '', tone: 'neutral' },
     { label: 'Test cases', value: totalCases, suffix: '', tone: 'neutral' },
     { label: 'Bugs open', value: totalOpenBugs, suffix: '', tone: totalOpenBugs > 0 ? 'danger' : 'neutral' },
-    { label: 'Pass rate', value: avgPassRate, suffix: '%', tone: avgPassRate >= 70 ? 'success' : avgPassRate >= 50 ? 'warning' : 'danger' },
+    { label: 'Pass rate', value: avgPassRate ?? '—', suffix: avgPassRate === null ? '' : '%', tone: avgPassRate === null ? 'neutral' : avgPassRate >= 70 ? 'success' : avgPassRate >= 50 ? 'warning' : 'danger' },
   ], [projects.length, totalCases, totalOpenBugs, avgPassRate])
 
   // ── Motion variants (respect prefers-reduced-motion) ──────────
@@ -221,7 +205,7 @@ export function DashboardPage() {
             transition={{ type: 'spring', stiffness: 300, damping: 22 }}
           >
             <span>{m.label}</span>
-            <strong><CountUp value={m.value} suffix={m.suffix} /></strong>
+            <strong>{m.value}{m.suffix}</strong>
           </motion.article>
         ))}
       </motion.section>
@@ -259,16 +243,14 @@ export function DashboardPage() {
                   <td className={p.openBugs > 0 ? 'metric-failed' : ''}>{p.openBugs}</td>
                   <td>
                     <div className="progress-cell">
-                      <span>{p.passRate}%</span>
+                      <span>{p.executed > 0 ? `${p.passRate}%` : '—'}</span>
                       <div className="progress-track">
-                        <span style={{ width: `${p.passRate}%` }} />
+                        <span style={{ width: `${p.executed > 0 ? p.passRate : 0}%` }} />
                       </div>
                     </div>
                   </td>
                   <td>
-                    <StatusPill tone={p.passRate >= 70 ? 'passed' : p.passRate >= 50 ? 'pending' : 'failed'}>
-                      {p.passRate >= 70 ? 'Good' : p.passRate >= 50 ? 'Review' : 'At risk'}
-                    </StatusPill>
+                    <StatusPill tone={p.health.tone}>{p.health.label}</StatusPill>
                   </td>
                 </tr>
               ))}
@@ -282,9 +264,7 @@ export function DashboardPage() {
                 <Link to={`/projects/${p.id}/test-cases`} className="mobile-card-title-link">
                   {p.name}
                 </Link>
-                <StatusPill tone={p.passRate >= 70 ? 'passed' : p.passRate >= 50 ? 'pending' : 'failed'}>
-                  {p.passRate >= 70 ? 'Good' : p.passRate >= 50 ? 'Review' : 'At risk'}
-                </StatusPill>
+                <StatusPill tone={p.health.tone}>{p.health.label}</StatusPill>
               </div>
               <div className="mobile-card-details">
                 <div>
@@ -297,7 +277,7 @@ export function DashboardPage() {
                 </div>
                 <div>
                   <span>Pass rate:</span>
-                  <strong>{p.passRate}%</strong>
+                  <strong>{p.executed > 0 ? `${p.passRate}%` : '—'}</strong>
                 </div>
                 <div>
                   <span>Latest run:</span>

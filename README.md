@@ -17,6 +17,10 @@ React 19 and Vite 8 frontend for QA Lab. The Express API in the sibling [backend
 
 The app opens on a public landing/sign-in page. New accounts do not automatically get a workspace. A platform admin can approve workspace requests or users can accept an invite; roles are enforced by the backend. Admin rights are granted from a trusted backend shell, not by choosing an email in the browser.
 
+QA Leads can invite a person by email from project settings or workspace settings. A project invite starts them as a Viewer of that project; a workspace invite starts them as a Viewer of all workspace projects. Existing accounts see invitations in the notification menu, and new recipients can register using the invited email. Each link expires after seven days. QA Lab currently opens an email draft or copies the link; it does not send invitation email automatically.
+
+Platform admins can create accounts with temporary passwords and optionally place them in a workspace as Viewers. The new user must set a private password at first sign-in. Admins can remove access from one workspace or delete an ordinary account across all workspaces; workspace owners and platform admins are protected from account deletion.
+
 ## Configuration
 
 The committed `.env.example` lists all local variables. Keep `.env` out of Git. The Google Drive picker needs an OAuth web client ID, a browser API key, and the numeric Google Cloud project number from the same project. See [Google Drive setup](GOOGLE_DRIVE_SETUP.md) for Cloud Console and deployment steps. Firebase variables are optional for the legacy Firestore sync path; the current account and access flow requires the Express API.

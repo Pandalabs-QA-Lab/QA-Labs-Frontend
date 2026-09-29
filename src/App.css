@@ -2767,11 +2767,17 @@ a.process-chip:hover { border-color: var(--accent); color: var(--accent); }
 
 .step-row {
   display: grid;
-  grid-template-columns: 16px 20px 1fr 30px;
+  grid-template-columns: 20px minmax(0, 1fr) 30px;
   align-items: center;
   gap: 8px;
   border-radius: 6px;
   transition: box-shadow 0.12s, opacity 0.12s;
+}
+
+.step-row > input,
+.step-row > .shared-step-block {
+  min-width: 0;
+  width: 100%;
 }
 
 .step-drag-handle {
@@ -5124,6 +5130,35 @@ button { font-family: inherit; }
   white-space: nowrap;
 }
 
+.admin-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 24px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.admin-tabs button {
+  flex: 1 1 auto;
+  min-height: 38px;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-tabs button:hover,
+.admin-tabs button.is-active { background: var(--soft-bg); color: var(--text-strong); }
+.admin-tabs button.is-active { box-shadow: inset 0 -2px var(--accent); }
+.admin-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
 .admin-stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -5146,6 +5181,54 @@ button { font-family: inherit; }
   min-height: 118px;
   padding: 18px 20px;
 }
+
+button.admin-stat { text-align: left; cursor: pointer; }
+button.admin-stat:hover { border-color: var(--accent); box-shadow: var(--shadow-md); }
+.admin-stat > small { font-size: 11px; font-weight: 650; color: var(--accent-strong); }
+
+.admin-overview-callout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding: 20px 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.admin-overview-callout p { margin: 4px 0 0; color: var(--text-muted); font-size: 13px; }
+
+.admin-search {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.admin-search input {
+  flex: 1;
+  min-width: 0;
+  min-height: 36px;
+  padding: 8px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.admin-directory-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.admin-directory-row > div:first-child { display: grid; gap: 4px; }
+.admin-directory-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.admin-pagination { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 18px; color: var(--text-muted); font-size: 12px; }
+.admin-pagination > div { display: flex; gap: 8px; }
 
 .admin-stat > span {
   color: var(--text-muted);
@@ -5174,8 +5257,26 @@ button { font-family: inherit; }
 }
 
 .admin-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
   margin-bottom: 18px;
 }
+
+.admin-section-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-section-link:hover { text-decoration: underline; }
+.admin-section-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
 .admin-section-heading h2 {
   margin: 0;
@@ -5359,6 +5460,52 @@ button { font-family: inherit; }
   padding: 5px 11px;
   font-size: 11px;
 }
+
+.admin-create-form {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.admin-create-form label {
+  display: grid;
+  gap: 5px;
+  min-width: 180px;
+  flex: 1 1 180px;
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.admin-create-form input,
+.admin-create-form select,
+.admin-remove-confirm input {
+  min-width: 0;
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-strong);
+}
+
+.admin-created-credentials {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--soft-bg);
+}
+
+.admin-created-credentials p { margin: 0; }
+.admin-created-credentials code { overflow-wrap: anywhere; }
+.admin-created-credentials button { justify-self: start; }
+.admin-delete-account { justify-self: start; }
+.admin-remove-confirm input { margin-bottom: 10px; }
 
 .admin-role select {
   max-width: 150px;
@@ -11181,3 +11328,38 @@ a.rr-bar-leg:hover { opacity: 0.75; color: var(--text-strong); }
   .proj-stat-sub { font-size: 9px; }
 }
 
+.invitation-panel { display: grid; gap: 14px; }
+.invitation-help { margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.5; }
+.invitation-form { display: grid; gap: 7px; }
+.invitation-form label { font-size: 13px; font-weight: 600; color: var(--text-strong); }
+.invitation-form-row { display: flex; flex-wrap: wrap; gap: 9px; }
+.invitation-form-row input { flex: 1 1 220px; min-width: 0; }
+.invitation-list { display: grid; gap: 10px; }
+.invitation-row { display: grid; gap: 9px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--soft-bg); }
+.invitation-person { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; font-size: 13px; }
+.invitation-person small { color: var(--text-muted); }
+.invitation-row input { width: 100%; min-width: 0; font-size: 12px; }
+.invitation-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.invitation-actions .secondary-button { font-size: 12px; text-decoration: none; }
+
+@media (max-width: 760px) {
+  .topbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 12px;
+    height: auto;
+    padding: 10px 16px;
+  }
+  .topbar .brand { grid-column: 1; grid-row: 1; }
+  .topbar-actions { grid-column: 2; grid-row: 1; }
+  .topnav {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: none;
+  }
+  .topnav a { flex-shrink: 0; }
+  .topnav::-webkit-scrollbar { display: none; }
+}

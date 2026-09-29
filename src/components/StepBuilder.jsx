@@ -21,7 +21,11 @@ export function StepBuilder({ steps, onChange, sharedSteps = [] }) {
   }
 
   const addSharedBlock = (groupId) => {
-    onChange([...steps, `shared_step_group:${groupId}`])
+    const next = [...steps]
+    const emptyIndex = next.findIndex((step) => typeof step === 'string' && !step.trim())
+    if (emptyIndex >= 0) next[emptyIndex] = `shared_step_group:${groupId}`
+    else next.push(`shared_step_group:${groupId}`)
+    onChange(next)
     setShowSelector(false)
   }
 

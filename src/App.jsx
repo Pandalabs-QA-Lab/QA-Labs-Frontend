@@ -32,6 +32,7 @@ import { ActivityPage } from './pages/ActivityPage'
 import { WorkspaceSettingsPage } from './pages/WorkspaceSettingsPage'
 import { WorkspaceWelcomePage } from './pages/WorkspaceWelcomePage'
 import { AdminPage } from './pages/AdminPage'
+import { ChangePasswordPage } from './pages/ChangePasswordPage'
 import './App.css'
 
 const mantineTheme = createTheme({
@@ -148,6 +149,8 @@ function AppShell() {
     }
     return <AuthPage />
   }
+
+  if (authUser.mustChangePassword) return <ChangePasswordPage />
 
   if (hash.startsWith('#/join/')) {
     return <HashRouter><Routes><Route path="/join/:token" element={<JoinPage />} /></Routes></HashRouter>

@@ -9,7 +9,7 @@ import { useToast } from '../context/useToast'
 import { useActivity } from '../hooks/useActivity'
 import { TrashIcon, CheckIcon, ShieldCheckIcon } from '../components/Icons'
 import { memberMatchesSearch } from '../utils/entitySearch'
-import { api } from '../api/client'
+import { InvitationPanel } from '../components/InvitationPanel'
 
 // Inline SVG components for high-quality, modern icons
 const ProfileIcon = (props) => (
@@ -54,7 +54,7 @@ export function WorkspaceSettingsPage() {
   const { user, updateUser } = useUser()
   const { authUser } = useAuth()
   const { isLead, role: currentRole } = useUserRole()
-  const { members, addMember, updateMember, removeMember } = useTeamMembers()
+  const { members, updateMember, removeMember } = useTeamMembers()
   const { activities } = useActivity()
   const confirm = useConfirm()
   const toast = useToast()
@@ -64,10 +64,6 @@ export function WorkspaceSettingsPage() {
   const [profileSaving, setProfileSaving] = useState(false)
   const [profileSaved, setProfileSaved] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [newMemberName, setNewMemberName] = useState('')
-  const [newMemberRole, setNewMemberRole] = useState('Tester')
-  const [inviteLink, setInviteLink] = useState('')
-  const [inviteLoading, setInviteLoading] = useState(false)
 
   const handleSaveProfile = async (e) => {
     e.preventDefault()
@@ -85,29 +81,6 @@ export function WorkspaceSettingsPage() {
     }
   }
 
-  const handleGenerateInviteLink = async () => {
-    setInviteLoading(true)
-    try {
-      const workspace = await api.post('/workspace/invite-link', {})
-      const link = `${window.location.origin}${window.location.pathname}#/join/${workspace.inviteToken}`
-      setInviteLink(link)
-      await navigator.clipboard.writeText(link)
-      toast.success('Invite link copied to clipboard!')
-    } catch {
-      toast.error('Failed to generate invite link.')
-    } finally {
-      setInviteLoading(false)
-    }
-  }
-
-  const handleRevokeInviteLink = async () => {
-    const ok = await confirm({ title: 'Revoke invite link?', message: 'The current invite link will stop working. You can generate a new one anytime.', confirmLabel: 'Revoke', danger: true })
-    if (!ok) return
-    await api.delete('/workspace/invite-link')
-    setInviteLink('')
-    toast.success('Invite link revoked.')
-  }
-
   const handleDeleteMember = async (member) => {
     const isSelf = member.uid === authUser?.id ||
                    member.name.toLowerCase() === user.toLowerCase()
@@ -118,27 +91,20 @@ export function WorkspaceSettingsPage() {
     }
 
     const ok = await confirm({
-      title: 'Delete user globally?',
-      message: `"${member.name}" will be permanently removed from this workspace, all project assignments, and their active session profile will be deleted.`,
-      confirmLabel: 'Delete user',
+      title: 'Remove workspace access?',
+      message: `"${member.name}" will lose access to this workspace and its projects. Their QA Lab account will remain available.`,
+      confirmLabel: 'Remove access',
       danger: true,
     })
 
     if (ok) {
-      removeMember(member.id)
-      toast.success('User deleted successfully')
+      try {
+        await removeMember(member.id)
+        toast.success('Workspace access removed')
+      } catch (error) {
+        toast.error(error.message || 'Could not remove workspace access')
+      }
     }
-  }
-
-  const handleAddMemberSubmit = (e) => {
-    e.preventDefault()
-    const trimmed = newMemberName.trim()
-    if (!trimmed) return
-    
-    addMember(trimmed, newMemberRole)
-    toast.success(`Member "${trimmed}" added as ${newMemberRole}`)
-    setNewMemberName('')
-    setNewMemberRole('Tester')
   }
 
   // Active tab selection forced to 'profile' for non-leads
@@ -237,40 +203,9 @@ export function WorkspaceSettingsPage() {
 
           {currentTab === 'directory' && isLead && (
             <>
-              {/* Invite link */}
               <div className="settings-card">
-                <div className="settings-card-header">
-                  <h3>Invite teammates</h3>
-                </div>
-                <div className="settings-card-body">
-                  <p className="text-muted" style={{ margin: '0 0 12px', fontSize: '12px' }}>
-                    Generate a shareable link — anyone who signs in or registers with it joins this workspace as a Viewer.
-                    Generating a new link invalidates any previous one.
-                  </p>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      onClick={handleGenerateInviteLink}
-                      disabled={inviteLoading}
-                    >
-                      {inviteLoading ? 'Generating…' : 'Generate invite link'}
-                    </button>
-                    {inviteLink && (
-                      <button type="button" className="secondary-button" onClick={handleRevokeInviteLink}>
-                        Revoke
-                      </button>
-                    )}
-                    {inviteLink && (
-                      <input
-                        readOnly
-                        value={inviteLink}
-                        onFocus={(e) => e.target.select()}
-                        style={{ flex: '1 1 260px', fontSize: 12 }}
-                      />
-                    )}
-                  </div>
-                </div>
+                <div className="settings-card-header"><h3>Invite teammates to workspace</h3></div>
+                <div className="settings-card-body"><InvitationPanel /></div>
               </div>
 
               {/* Directory Card */}
@@ -371,46 +306,6 @@ export function WorkspaceSettingsPage() {
                 </div>
               </div>
 
-              {/* Add Member Form */}
-              <form onSubmit={handleAddMemberSubmit} className="add-member-section">
-                <h4 style={{ margin: 0, fontSize: '13.5px', fontWeight: 700, color: 'var(--text-strong)' }}>Add Workspace Member</h4>
-                <p className="text-muted" style={{ margin: 0, fontSize: '12px', marginTop: '-6px' }}>
-                  Create offline or local-mode member profiles manually to assign them to test cases or log bugs.
-                </p>
-                <div className="add-member-form-row">
-                  <div className="settings-grid-field" style={{ flex: 1 }}>
-                    <label htmlFor="new-member-name-input">Full Name</label>
-                    <input 
-                      id="new-member-name-input"
-                      value={newMemberName} 
-                      onChange={(e) => setNewMemberName(e.target.value)} 
-                      placeholder="e.g. John Doe"
-                      style={{ height: '36px' }}
-                    />
-                  </div>
-                  <div className="settings-grid-field" style={{ minWidth: '140px' }}>
-                    <label htmlFor="new-member-role-select">Assigned Role</label>
-                    <select 
-                      id="new-member-role-select"
-                      value={newMemberRole} 
-                      onChange={(e) => setNewMemberRole(e.target.value)}
-                      style={{ height: '36px' }}
-                    >
-                      <option value="Viewer">Viewer</option>
-                      <option value="Tester">Tester</option>
-                      <option value="QA Lead">QA Lead</option>
-                    </select>
-                  </div>
-                  <button 
-                    type="submit" 
-                    className="secondary-button" 
-                    disabled={!newMemberName.trim()}
-                    style={{ height: '36px', minWidth: '120px' }}
-                  >
-                    Add Member
-                  </button>
-                </div>
-              </form>
             </>
           )}
 

@@ -5,69 +5,55 @@ import { api } from '../api/client'
 
 export function JoinPage() {
   const { token } = useParams()
-  const { authUser, switchWorkspace } = useAuth()
-  const [status, setStatus] = useState('checking') // checking | joining | done | invalid
-  const [workspaceName, setWorkspaceName] = useState('')
+  const { authUser, switchWorkspace, signOut } = useAuth()
+  const [invitation, setInvitation] = useState(null)
+  const [status, setStatus] = useState('checking')
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    if (!token) return
-
-    api.get(`/invites/${token}`)
-      .then(({ workspaceName: name }) => setWorkspaceName(name))
-      .catch(() => setStatus('invalid'))
+    let active = true
+    api.get(`/invites/${encodeURIComponent(token)}`)
+      .then((details) => { if (active) { setInvitation(details); setStatus('ready') } })
+      .catch((err) => { if (active) { setError(err.message); setStatus('invalid') } })
+    return () => { active = false }
   }, [token])
 
-  useEffect(() => {
-    if (!authUser || !token || status !== 'checking') return
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- reacting to authUser becoming available, not a derived-state sync
+  const accept = async () => {
     setStatus('joining')
-    api.post(`/invites/${token}/accept`, {})
-      .then(async ({ workspaceName: name, workspaceId }) => {
-        await switchWorkspace(workspaceId)
-        setWorkspaceName(name)
-        setStatus('done')
-        setTimeout(() => { window.location.hash = '#/projects'; window.location.reload() }, 800)
-      })
-      .catch(() => setStatus('invalid'))
-  }, [authUser, token, status, switchWorkspace])
-
-  // Not signed in — prompt to sign in first (the join finishes automatically
-  // once authUser becomes truthy, since the hash route survives the auth gate)
-  if (!authUser) {
-    return (
-      <div className="auth-backdrop">
-        <div className="auth-card" style={{ textAlign: 'center' }}>
-          <div className="auth-brand"><span>QA Lab</span></div>
-          <h1 className="auth-title">You've been invited!</h1>
-          <p style={{ color: 'var(--text-muted)', marginBottom: '24px' }}>
-            {workspaceName ? `Sign in or create an account to join "${workspaceName}".` : 'Sign in or create an account to join this workspace.'}
-          </p>
-          <a href="#/" onClick={() => sessionStorage.setItem('qa_pending_invite', token)} className="primary-button" style={{ textDecoration: 'none', display: 'inline-block' }}>
-            Sign in to continue
-          </a>
-        </div>
-      </div>
-    )
+    setError('')
+    try {
+      const joined = await api.post(`/invites/${encodeURIComponent(token)}/accept`, {})
+      await switchWorkspace(joined.workspaceId)
+      window.location.hash = joined.projectId ? `#/projects/${joined.projectId}/dashboard` : '#/projects'
+      window.location.reload()
+    } catch (err) {
+      setError(err.message)
+      setStatus('ready')
+    }
   }
 
-  const messages = {
-    checking: 'Verifying invite link…',
-    joining:  workspaceName ? `Adding you to "${workspaceName}"…` : 'Joining workspace…',
-    done:     workspaceName ? `You're in! Opening "${workspaceName}"…` : 'Done! Redirecting…',
-    invalid:  'This invite link is invalid or has been revoked.',
-  }
+  const target = invitation?.projectName
+    ? `the ${invitation.projectName} project in ${invitation.workspaceName}`
+    : `the ${invitation?.workspaceName || 'QA Lab'} workspace`
 
-  return (
-    <div className="app-loading">
-      <div className="app-loading-card" style={{ textAlign: 'center', gap: '12px' }}>
-        {status !== 'invalid' && <div className="app-loading-spinner" aria-label="Loading" />}
-        <p style={{ margin: 0, color: status === 'invalid' ? 'var(--danger)' : 'var(--text-strong)' }}>
-          {messages[status]}
-        </p>
-        {status === 'invalid' && (
-          <a href="#/" className="secondary-button" style={{ textDecoration: 'none', marginTop: '8px' }}>Go home</a>
-        )}
-      </div>
+  return <main className="auth-backdrop">
+    <div className="auth-card" style={{ textAlign: 'center' }}>
+      <div className="auth-brand"><span>QA Lab</span></div>
+      <h1 className="auth-title">{status === 'invalid' ? 'Invitation unavailable' : `Invitation to ${target}`}</h1>
+      {status === 'checking' && <p>Checking invitation…</p>}
+      {error && <p className="auth-error" role="alert">{error}</p>}
+      {status === 'invalid' && <a className="secondary-button" href="#/">Go home</a>}
+      {status === 'ready' && !authUser && <>
+        <p>Sign in or create an account with {invitation?.email || 'the invited email address'} to accept.</p>
+        <a href="#/" onClick={() => sessionStorage.setItem('qa_pending_invite', token)} className="primary-button">Sign in to continue</a>
+      </>}
+      {status === 'ready' && authUser && <>
+        {invitation?.email && <p>This invitation is for {invitation.email}. You are signed in as {authUser.email}.</p>}
+        <button className="primary-button" type="button" onClick={accept} disabled={Boolean(invitation?.email && invitation.email.toLowerCase() !== authUser.email.toLowerCase())}>Accept invitation</button>
+        {invitation?.email && invitation.email.toLowerCase() !== authUser.email.toLowerCase() &&
+          <button className="secondary-button" type="button" onClick={signOut}>Use another account</button>}
+      </>}
+      {status === 'joining' && <p>Adding you to {target}…</p>}
     </div>
-  )
+  </main>
 }

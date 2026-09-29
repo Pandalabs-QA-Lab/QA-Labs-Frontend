@@ -12,6 +12,7 @@ import { useNotifications } from '../hooks/useNotifications'
 import { useUserRole } from '../hooks/useUserRole'
 import { useSwipeBack } from '../hooks/useSwipeBack'
 import { ScrollToTopButton } from './ScrollToTopButton'
+import { api } from '../api/client'
 
 
 const globalNav = [
@@ -221,9 +222,20 @@ function BellIcon(props) {
 
 function NotificationCenter() {
   const { notifications, unreadCount, markAsRead, markAllAsRead, clearAll } = useNotifications()
+  const [invitations, setInvitations] = useState([])
   const [open, setOpen] = useState(false)
   const dropdownRef = useRef(null)
   const navigate = useNavigate()
+
+  useEffect(() => {
+    let active = true
+    const refresh = () => api.get('/invites/pending')
+      .then((rows) => { if (active) setInvitations(rows) })
+      .catch(() => {})
+    refresh()
+    const timer = setInterval(refresh, 60000)
+    return () => { active = false; clearInterval(timer) }
+  }, [])
 
   useEffect(() => {
     if (!open) return undefined
@@ -250,12 +262,12 @@ function NotificationCenter() {
     <div className="notification-center-wrap" ref={dropdownRef}>
       <button
         type="button"
-        className={`notification-bell-btn ${unreadCount > 0 ? 'has-unread' : ''}`}
+        className={`notification-bell-btn ${unreadCount + invitations.length > 0 ? 'has-unread' : ''}`}
         onClick={() => setOpen(!open)}
-        aria-label={`Notifications, ${unreadCount} unread`}
+        aria-label={`Notifications, ${unreadCount} unread and ${invitations.length} invitations`}
       >
         <BellIcon />
-        {unreadCount > 0 && <span className="notification-badge-dot" />}
+        {unreadCount + invitations.length > 0 && <span className="notification-badge-dot" />}
       </button>
 
       {open && (
@@ -277,7 +289,19 @@ function NotificationCenter() {
           </div>
 
           <div className="notification-list">
-            {notifications.length === 0 ? (
+            {invitations.map((invite) => <a
+              key={invite.id}
+              className="notification-item unread"
+              href={`#/join/${invite.token}`}
+              onClick={() => setOpen(false)}
+            >
+              <div className="notification-item-content">
+                <div className="notification-message">Invitation to {invite.projectName ? `${invite.projectName} · ${invite.workspaceName}` : invite.workspaceName}</div>
+                <div className="notification-time">Review and accept</div>
+              </div>
+              <div className="unread-bullet" />
+            </a>)}
+            {notifications.length === 0 && invitations.length === 0 ? (
               <div className="notification-empty">
                 No new notifications
               </div>
