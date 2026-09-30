@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { Modal } from './Modal'
-import { parseTestCaseFile, rowToTestCase } from '../utils/parseTestCaseFile'
+import { parseTestCaseFile, rowToTestCase, splitRequirementKeys } from '../utils/parseTestCaseFile'
 import { CheckIcon, XIcon, DownloadIcon } from './Icons'
 import { addActivity } from '../utils/activity'
 import { openGooglePicker, downloadDriveFile } from '../utils/googlePicker'
@@ -12,7 +12,7 @@ const ACCEPT = '.xlsx,.xls,.csv'
 const TEMPLATE_HEADERS = [
   'TC ID', 'Module', 'Test Scenario', 'Test Case Title',
   'Pre-conditions', 'Test Steps', 'Test Data',
-  'Expected Result', 'Actual Result', 'Status', 'Dev Remarks', 'QA Remarks',
+  'Expected Result', 'Actual Result', 'Status', 'Dev Remarks', 'QA Remarks', 'Requirement IDs',
 ]
 
 function downloadTemplate() {
@@ -20,7 +20,7 @@ function downloadTemplate() {
     TEMPLATE_HEADERS,
     ['TC_001', 'Login', 'Valid login flow', 'Verify user can login with valid credentials',
      'User is registered', '1. Go to /login\n2. Enter credentials\n3. Click Sign in',
-     'valid@example.com / Pass@123', 'Redirect to dashboard', '', 'Not Executed', '', ''],
+     'valid@example.com / Pass@123', 'Redirect to dashboard', '', 'Not Executed', '', '', 'REQ-001'],
   ])
   ws['!cols'] = TEMPLATE_HEADERS.map((h) => ({ wch: Math.max(h.length + 4, 18) }))
   const wb = XLSX.utils.book_new()
@@ -59,16 +59,23 @@ function findExistingMatch(data, existingTestCases) {
   return match ? { testCase: match, reason: 'same title and module' } : null
 }
 
-function prepareRows(parsedRows, existingTestCases) {
+function prepareRows(parsedRows, existingTestCases, requirements) {
   const seen = new Map()
 
   return parsedRows.map((row) => {
-    if (row.errors.length > 0) return { ...row, duplicate: null, action: 'skip' }
+    const errors = [...row.errors]
+    const requirementIds = []
+    for (const key of splitRequirementKeys(row.data.requirementKeysRaw)) {
+      const matches = requirements.filter((req) => normalizeKeyPart(req.key) === normalizeKeyPart(key))
+      if (matches.length !== 1) errors.push(`${matches.length ? 'Ambiguous' : 'Unknown'} requirement ID: ${key}`)
+      else if (!requirementIds.includes(matches[0].id)) requirementIds.push(matches[0].id)
+    }
+    if (errors.length > 0) return { ...row, errors, requirementIds, duplicate: null, action: 'skip' }
 
     const existing = findExistingMatch(row.data, existingTestCases)
     if (existing) {
       return {
-        ...row,
+        ...row, errors, requirementIds,
         duplicate: { type: 'existing', ...existing },
         action: 'skip',
       }
@@ -77,14 +84,14 @@ function prepareRows(parsedRows, existingTestCases) {
     const key = duplicateKey(row.data)
     if (key && seen.has(key)) {
       return {
-        ...row,
+        ...row, errors, requirementIds,
         duplicate: { type: 'file', rowNum: seen.get(key), reason: `same as row ${seen.get(key)}` },
         action: 'skip',
       }
     }
 
     if (key) seen.set(key, row.rowNum)
-    return { ...row, duplicate: null, action: 'create' }
+    return { ...row, errors, requirementIds, duplicate: null, action: 'create' }
   })
 }
 
@@ -181,7 +188,7 @@ function DropZone({ onFile }) {
       {error && <p className="bulk-file-error">{error}</p>}
       <div className="bulk-template-row">
         <p className="bulk-template-hint">
-          Required columns: <em>Module, Test Case Title, Test Steps, Expected Result</em>
+          Required: <em>Module, Test Case Title, Test Steps, Expected Result</em>. Optional Requirement IDs must match keys already in this project.
         </p>
         <button className="secondary-button" type="button" onClick={downloadTemplate}>
           <DownloadIcon width={14} height={14} /> Download template
@@ -377,7 +384,7 @@ const IMPORT_TABS = [
   { key: 'google', label: 'URL' },
 ]
 
-export function BulkUploadModal({ existingTestCases = [], onImport, onUpdate, onClose }) {
+export function BulkUploadModal({ existingTestCases = [], requirements = [], onImport, onUpdate, onLinkRequirement, onClose }) {
   const { projectId } = useParams()
   const [step, setStep]           = useState(0)   // 0=upload 1=preview 2=done
   const [rows, setRows]           = useState([])
@@ -386,6 +393,8 @@ export function BulkUploadModal({ existingTestCases = [], onImport, onUpdate, on
   const [importTab, setImportTab] = useState('file')
   const [isMultiSheet, setIsMultiSheet] = useState(false)
   const [sheetNames, setSheetNames]     = useState([])
+  const [importing, setImporting] = useState(false)
+  const [importError, setImportError] = useState('')
 
   const validRows   = rows.filter((r) => r.errors.length === 0 && r.action !== 'skip')
   const invalidRows = rows.filter((r) => r.errors.length > 0)
@@ -400,7 +409,7 @@ export function BulkUploadModal({ existingTestCases = [], onImport, onUpdate, on
       setFilename(name)
       setIsMultiSheet(multi || false)
       setSheetNames(sheets || [])
-      setRows(prepareRows(parsed, existingTestCases))
+      setRows(prepareRows(parsed, existingTestCases, requirements))
       setStep(1)
     } catch (err) {
       console.error('[bulkUpload] Parse failed:', err)
@@ -421,76 +430,78 @@ export function BulkUploadModal({ existingTestCases = [], onImport, onUpdate, on
     )))
   }
 
-  const handleImport = () => {
-    const now = new Date().toISOString()
-    // Stagger createdAt by 1ms per row so TC_001 (i=0) is the oldest timestamp.
-    // subscribeTestCases sorts ascending (oldest first), so the spreadsheet row
-    // order is preserved in the list: TC_001 at top, TC_311 at bottom.
-    const baseTime = Date.now()
-    createRows.forEach((r, i) => {
-      const tc = rowToTestCase(r.data)
-      tc.createdAt = new Date(baseTime + i).toISOString()
-      tc.skipActivityLog = true
-      onImport(tc)
-    })
-    updateRows.forEach((r) => {
-      const incoming = rowToTestCase(r.data)
-      const existing = r.duplicate.testCase
-      onUpdate({
-        ...existing,
-        // Update structural/organisational fields from the sheet
-        folder: incoming.folder || existing.folder || '',
-        module: incoming.module || existing.module,
-        title: incoming.title,
-        scenario: incoming.scenario || existing.scenario,
-        preconditions: incoming.preconditions || existing.preconditions,
-        steps: incoming.steps?.length ? incoming.steps : existing.steps,
-        testData: incoming.testData || existing.testData,
-        expected: incoming.expected || existing.expected,
-        devRemarks: incoming.devRemarks || existing.devRemarks,
-        qaRemarks: incoming.qaRemarks || existing.qaRemarks,
-        // Preserve all user-set execution data
-        id: existing.id,
-        createdAt: existing.createdAt,
-        status: existing.status,
-        actual: existing.actual,
-        assignee: existing.assignee,
-        priority: existing.priority ?? incoming.priority,
-        tags: existing.tags,
-        evidenceLinks: existing.evidenceLinks,
-        history: existing.history,
-        updatedAt: now,
-        skipActivityLog: true,
-      })
+  const handleImport = async () => {
+    setImporting(true)
+    setImportError('')
+    const links = new Map()
+    const failures = []
+    let created = 0
+    let updated = 0
+    const recordLinks = (row, caseId) => row.requirementIds.forEach((requirementId) => {
+      if (!links.has(requirementId)) links.set(requirementId, new Set())
+      links.get(requirementId).add(caseId)
     })
 
-    const totalChanges = createRows.length + updateRows.length
-    if (totalChanges > 0) {
-      addActivity({
-        entityType: 'import',
-        projectId,
-        action: 'imported',
-        title: `${totalChanges} test cases imported`,
-        details: `${createRows.length} created, ${updateRows.length} updated from bulk upload.`,
-        metadata: {
-          filename,
-          createdCount: createRows.length,
-          updatedCount: updateRows.length,
-          source: importTab === 'google' ? 'Google Sheet' : 'CSV/Excel file',
-        }
+    for (let start = 0; start < createRows.length; start += 10) {
+      const chunk = createRows.slice(start, start + 10)
+      const results = await Promise.allSettled(chunk.map((row) => {
+        const data = rowToTestCase(row.data)
+        if (row.duplicate) delete data.sourceTcId // A duplicate imported as new needs a fresh ID.
+        return onImport(data)
+      }))
+      results.forEach((result, index) => {
+        const row = chunk[index]
+        if (result.status === 'fulfilled') {
+          created++
+          recordLinks(row, result.value.id)
+        } else failures.push(`Row ${row.rowNum}: ${result.reason?.message || 'Could not create test case'}`)
       })
     }
 
-    setSummary({
-      total: rows.length,
-      created: createRows.length,
-      updated: updateRows.length,
-      skipped: skippedRows.length,
-    })
+    for (const row of updateRows) {
+      const incoming = rowToTestCase(row.data)
+      const existing = row.duplicate.testCase
+      try {
+        const saved = await onUpdate({
+          ...existing,
+          folder: incoming.folder || existing.folder || '',
+          folderId: incoming.folder ? undefined : existing.folderId,
+          module: incoming.module || existing.module,
+          title: incoming.title,
+          scenario: incoming.scenario || existing.scenario,
+          preconditions: incoming.preconditions || existing.preconditions,
+          steps: incoming.steps?.length ? incoming.steps : existing.steps,
+          testData: incoming.testData || existing.testData,
+          expected: incoming.expected || existing.expected,
+          devRemarks: incoming.devRemarks || existing.devRemarks,
+          qaRemarks: incoming.qaRemarks || existing.qaRemarks,
+          updatedAt: new Date().toISOString(),
+        })
+        updated++
+        recordLinks(row, saved.id)
+      } catch (error) { failures.push(`Row ${row.rowNum}: ${error.message || 'Could not update test case'}`) }
+    }
+
+    for (const [requirementId, caseIds] of links) {
+      const requirement = requirements.find((req) => req.id === requirementId)
+      try {
+        await onLinkRequirement({ ...requirement, testCaseIds: [...new Set([...(requirement.testCaseIds || []), ...caseIds])] })
+      } catch (error) { failures.push(`${requirement.key || requirement.title}: ${error.message || 'Could not link cases'}`) }
+    }
+
+    if (created + updated > 0) {
+      addActivity({ entityType: 'import', projectId, action: 'imported',
+        title: `${created + updated} test cases imported`,
+        details: `${created} created, ${updated} updated from ${filename}.`,
+        metadata: { filename, createdCount: created, updatedCount: updated, source: importTab === 'google' ? 'Google Sheet' : 'CSV/Excel file' } })
+    }
+    setSummary({ total: rows.length, created, updated, skipped: skippedRows.length, failed: failures.length })
+    setImportError(failures.join('\n'))
     setStep(2)
+    setImporting(false)
   }
 
-  const reset = () => { setStep(0); setRows([]); setFilename(''); setSummary(null); setImportTab('file'); setIsMultiSheet(false); setSheetNames([]) }
+  const reset = () => { setStep(0); setRows([]); setFilename(''); setSummary(null); setImportTab('file'); setIsMultiSheet(false); setSheetNames([]); setImportError(''); setImporting(false) }
 
   // Widen modal during preview
   const modalStyle = step === 1 ? { maxWidth: 1040 } : {}
@@ -569,6 +580,7 @@ export function BulkUploadModal({ existingTestCases = [], onImport, onUpdate, on
                       <th>Title</th>
                       <th style={{ width: 120 }}>Module</th>
                       <th style={{ width: 110 }}>Status</th>
+                      <th style={{ width: 140 }}>Requirement IDs</th>
                       <th style={{ width: 130 }}>Validation</th>
                       <th style={{ width: 130 }}>Duplicate</th>
                       <th style={{ width: 140 }}>Action</th>
@@ -590,14 +602,15 @@ export function BulkUploadModal({ existingTestCases = [], onImport, onUpdate, on
                         </td>
                         <td>{row.data.module || <em className="text-muted">—</em>}</td>
                         <td>{row.data.statusRaw || <em className="text-muted">—</em>}</td>
-                        <td><ValidationBadge errors={row.errors} /></td>
+                        <td>{row.data.requirementKeysRaw || <em className="text-muted">—</em>}</td>
+                        <td><ValidationBadge errors={row.errors} />{row.errors.length > 0 && <small className="text-danger" style={{ display: 'block', marginTop: 4 }}>{row.errors.join('; ')}</small>}</td>
                         <td><DuplicateBadge duplicate={row.duplicate} /></td>
                         <td>
                           <select
                             className="inline-select bulk-action-select"
                             value={row.action}
                             aria-label={`Import action for row ${row.rowNum}`}
-                            disabled={row.errors.length > 0}
+                            disabled={row.errors.length > 0 || importing}
                             onChange={(e) => setRowAction(row.rowNum, e.target.value)}
                           >
                             {row.duplicate && <option value="skip">Skip</option>}
@@ -616,8 +629,8 @@ export function BulkUploadModal({ existingTestCases = [], onImport, onUpdate, on
             <div className="modal-footer">
               <button className="secondary-button" type="button" onClick={reset}>Back</button>
               <button className="primary-button" type="button"
-                disabled={validRows.length === 0} onClick={handleImport}>
-                Apply {validRows.length} change{validRows.length !== 1 ? 's' : ''}
+                disabled={validRows.length === 0 || importing} onClick={handleImport}>
+                {importing ? 'Importing…' : `Apply ${validRows.length} change${validRows.length !== 1 ? 's' : ''}`}
               </button>
             </div>
           </>
@@ -639,6 +652,7 @@ export function BulkUploadModal({ existingTestCases = [], onImport, onUpdate, on
                 <span>Skipped</span>
               </div>
             </div>
+            {summary.failed > 0 && <p className="bulk-file-error" role="alert">{summary.failed} operation(s) failed. {importError}</p>}
             <div className="modal-footer">
               <button className="secondary-button" type="button" onClick={reset}>Upload another</button>
               <button className="primary-button" type="button" onClick={onClose}>Done</button>

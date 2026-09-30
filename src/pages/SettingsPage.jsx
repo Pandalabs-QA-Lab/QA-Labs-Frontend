@@ -19,6 +19,7 @@ import {
   Timeline,
 } from '@mantine/core'
 import { XIcon } from '../components/Icons'
+import { InvitationPanel } from '../components/InvitationPanel'
 import { PageHeader } from '../components/PageHeader'
 import { useConfirm } from '../context/useConfirm'
 import { useToast } from '../context/useToast'
@@ -30,12 +31,11 @@ import { useTestCases } from '../hooks/useTestCases'
 import { useBugs } from '../hooks/useBugs'
 import { useTestRuns } from '../hooks/useTestRuns'
 import { getJiraSettings, saveJiraSettings } from '../utils/storage'
-import { api } from '../api/client'
 
 export function SettingsPage() {
   const { projectId } = useParams()
   const { projects, updateProject, removeProject, setPublicShare } = useProjects()
-  const { members, addMember, updateMember } = useTeamMembers()
+  const { members } = useTeamMembers()
   const { testCases } = useTestCases(projectId)
   const { bugs } = useBugs(projectId)
   const { runs } = useTestRuns(projectId)
@@ -48,14 +48,11 @@ export function SettingsPage() {
   const project = projects.find((p) => p.id === projectId)
   const [name, setName] = useState(project?.name ?? '')
   const [description, setDescription] = useState(project?.description ?? '')
-  const [newMemberName, setNewMemberName] = useState('')
   const [saved, setSaved] = useState(false)
 
   // Jira integration settings
   const [jiraSettings, setJiraSettings] = useState(() => getJiraSettings())
   const [jiraSaved, setJiraSaved] = useState(false)
-  const [inviteLink, setInviteLink] = useState('')
-  const [inviteLoading, setInviteLoading] = useState(false)
   const [shareLoading, setShareLoading] = useState(false)
 
   const shareLink = project?.publicShareToken
@@ -75,29 +72,6 @@ export function SettingsPage() {
     }
   }
 
-  const handleGenerateInvite = async () => {
-    setInviteLoading(true)
-    try {
-      const workspace = await api.post('/workspace/invite-link', {})
-      const link = `${window.location.origin}${window.location.pathname}#/join/${workspace.inviteToken}`
-      setInviteLink(link)
-      await navigator.clipboard.writeText(link)
-      toast.success('Invite link copied to clipboard!')
-    } catch {
-      toast.error('Failed to generate invite link.')
-    } finally {
-      setInviteLoading(false)
-    }
-  }
-
-  const handleRevokeInvite = async () => {
-    const ok = await confirm({ title: 'Revoke invite link?', message: 'The current invite link will stop working. You can generate a new one anytime.', confirmLabel: 'Revoke', danger: true })
-    if (!ok) return
-    await api.delete('/workspace/invite-link')
-    setInviteLink('')
-    toast.success('Invite link revoked.')
-  }
-
   const projectActivities = getActivitiesByProject(projectId).slice(0, 10)
 
   if (!project) {
@@ -110,7 +84,7 @@ export function SettingsPage() {
 
   const memberIds = project.memberIds ?? []
   const projectMembers = members.filter((m) => memberIds.includes(m.id))
-  const nonMembers = members.filter((m) => !memberIds.includes(m.id))
+  const nonMembers = members.filter((m) => m.uid && !memberIds.includes(m.id))
 
   const handleSave = (e) => {
     e.preventDefault()
@@ -139,20 +113,6 @@ export function SettingsPage() {
   const removeMemberFromProject = (memberId) =>
     updateProject({ ...project, memberIds: memberIds.filter((id) => id !== memberId) })
 
-  // Create a brand-new global member AND attach them to this project atomically
-  const handleAddNew = async (e) => {
-    e.preventDefault()
-    const trimmed = newMemberName.trim()
-    if (!trimmed) return
-    try {
-      const newMember = await addMember(trimmed)
-      updateProject({ ...project, memberIds: [...memberIds, newMember.id] })
-      setNewMemberName('')
-    } catch (err) {
-      toast.error(err.message || 'Failed to add member')
-    }
-  }
-
   const handleDelete = async () => {
     const tcCount = testCases.length
     const bugCount = bugs.length
@@ -174,12 +134,6 @@ export function SettingsPage() {
       navigate('/projects')
     }
   }
-
-  const roleData = [
-    { value: 'Viewer', label: 'Viewer' },
-    { value: 'Tester', label: 'Tester' },
-    { value: 'QA Lead', label: 'QA Lead' },
-  ]
 
   const nonMemberSelectData = nonMembers.map((m) => ({
     value: m.id,
@@ -237,22 +191,10 @@ export function SettingsPage() {
                     {m.name.slice(0, 2).toUpperCase()}
                   </Avatar>
                   <Text size="sm" fw={500}>{m.name}</Text>
-                  {m.uid && (
-                    <Badge variant="light" color="accent" size="xs">
-                      Workspace user
-                    </Badge>
-                  )}
+                  {m.email && <Text size="xs" c="dimmed">{m.email}</Text>}
                 </Group>
                 <Group gap="xs">
-                  <Select
-                    data={roleData}
-                    value={m.role || 'Viewer'}
-                    onChange={(val) => updateMember({ ...m, role: val })}
-                    disabled={!isLead}
-                    size="xs"
-                    w={120}
-                    comboboxProps={{ withinPortal: true }}
-                  />
+                  <Badge variant="light" color="accent" size="xs">{m.role || 'Viewer'}</Badge>
                   {isLead && (
                     <ActionIcon
                       variant="subtle"
@@ -273,7 +215,7 @@ export function SettingsPage() {
         {isLead && (
           <>
             <Divider my="md" />
-            <Text size="sm" fw={500} c="dimmed" mb="xs">Assign team members</Text>
+            <Text size="sm" fw={500} c="dimmed" mb="xs">Assign existing workspace users</Text>
 
             <Stack gap="sm">
               {nonMembers.length > 0 && (
@@ -289,65 +231,16 @@ export function SettingsPage() {
                 />
               )}
 
-              <form onSubmit={handleAddNew}>
-                <TextInput
-                  label="Create & assign new member"
-                  placeholder="Name (e.g. John Doe)"
-                  value={newMemberName}
-                  onChange={(e) => setNewMemberName(e.target.value)}
-                  rightSection={
-                    <Button
-                      type="submit"
-                      size="compact-xs"
-                      variant="light"
-                      disabled={!newMemberName.trim()}
-                    >
-                      Add
-                    </Button>
-                  }
-                  rightSectionWidth={60}
-                />
-              </form>
             </Stack>
           </>
         )}
       </Card>
 
-      {/* ─── Invite to Workspace ─── */}
+      {/* ─── Project invitations ─── */}
       {isLead && (
         <Card shadow="sm" padding="lg" radius="md" withBorder mb="md" bg="var(--surface)" style={{ borderColor: 'var(--border)' }}>
-          <Title order={4} mb="xs" style={{ fontFamily: 'var(--heading)', color: 'var(--text-strong)' }}>Invite to workspace</Title>
-          <Text size="xs" c="dimmed" mb="md">
-            Share this link to invite teammates into the workspace containing <strong>{project.name}</strong>. They'll join as Viewers and can see the workspace's projects.
-          </Text>
-
-          <Group gap="sm" wrap="wrap">
-            {inviteLink && (
-              <TextInput
-                readOnly
-                value={inviteLink}
-                style={{ flex: '1 1 300px' }}
-                styles={{ input: { fontFamily: 'monospace', fontSize: 12 } }}
-                onClick={(e) => e.target.select()}
-              />
-            )}
-            <CopyButton value={inviteLink} timeout={2000}>
-              {({ copied, copy }) => (
-                <Button
-                  color={copied ? 'green' : 'accent'}
-                  loading={inviteLoading}
-                  onClick={inviteLink ? copy : handleGenerateInvite}
-                >
-                  {inviteLoading ? 'Generating…' : copied ? 'Copied!' : inviteLink ? 'Copy link' : 'Generate invite link'}
-                </Button>
-              )}
-            </CopyButton>
-            {inviteLink && (
-              <Button variant="light" color="red" onClick={handleRevokeInvite}>
-                Revoke
-              </Button>
-            )}
-          </Group>
+          <Title order={4} mb="xs" style={{ fontFamily: 'var(--heading)', color: 'var(--text-strong)' }}>Invite to project</Title>
+          <InvitationPanel projectId={project.id} projectName={project.name} />
         </Card>
       )}
 

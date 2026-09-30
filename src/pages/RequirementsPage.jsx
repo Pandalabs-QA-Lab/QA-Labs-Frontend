@@ -4,6 +4,8 @@ import { PageHeader } from '../components/PageHeader'
 import { StatusPill } from '../components/StatusPill'
 import { Modal } from '../components/Modal'
 import { useRequirements } from '../hooks/useRequirements'
+import { useProjectFolders, folderIdsInBranch, folderPath } from '../hooks/useProjectFolders'
+import { ProjectFolderTree } from '../components/ProjectFolderTree'
 import { useTestCases } from '../hooks/useTestCases'
 import { useBugs } from '../hooks/useBugs'
 import { useTestRuns } from '../hooks/useTestRuns'
@@ -19,7 +21,7 @@ import { testCaseMatchesSearch } from '../utils/testCaseSearch'
 
 const PRIORITIES = ['High', 'Medium', 'Low']
 
-const blankForm = () => ({ key: '', title: '', description: '', priority: 'Medium', testCaseIds: [] })
+const blankForm = (folderId = null) => ({ key: '', title: '', description: '', acceptanceCriteriaText: '', priority: 'Medium', testCaseIds: [], folderId })
 
 // Build a map of testCaseId → latest execution status from the most recent run.
 function buildRunStatusMap(runs) {
@@ -55,7 +57,8 @@ function coverageOf(req, tcById, runStatusMap = {}) {
 
 export function RequirementsPage() {
   const { projectId, requirementId } = useParams()
-  const { requirements, addRequirement, updateRequirement, removeRequirement } = useRequirements(projectId)
+  const { requirements, addRequirement, addRequirements, updateRequirement, removeRequirement, refresh: refreshRequirements } = useRequirements(projectId)
+  const { folders, createFolder, updateFolder, deleteFolder } = useProjectFolders(projectId)
   const { testCases, updateTestCase } = useTestCases(projectId)
   const { bugs } = useBugs(projectId)
   const { runs } = useTestRuns(projectId)
@@ -69,6 +72,7 @@ export function RequirementsPage() {
   const [form, setForm] = useState(blankForm)
   const [tcSearch, setTcSearch] = useState('')
   const [search, setSearch] = useState('')
+  const [selectedFolder, setSelectedFolder] = useState('')
   const [showImport, setShowImport] = useState(false)
 
   const tcById = useMemo(() => new Map(testCases.map((tc) => [tc.id, tc])), [testCases])
@@ -82,9 +86,12 @@ export function RequirementsPage() {
       .map((req) => ({ req, cov: coverageOf(req, tcById, runStatusMap) }))
   ), [requirements, tcById, runStatusMap])
 
+  const selectedFolderIds = useMemo(() => folderIdsInBranch(folders, selectedFolder), [folders, selectedFolder])
   const filteredRows = useMemo(() => {
-    return rows.filter(({ req }) => requirementMatchesSearch(req, search))
-  }, [rows, search])
+    return rows.filter(({ req }) => (
+      selectedFolder === 'unfiled' ? !req.folderId : !selectedFolderIds || selectedFolderIds.has(req.folderId)
+    ) && requirementMatchesSearch(req, search))
+  }, [rows, search, selectedFolder, selectedFolderIds])
 
   const uncoveredCount = rows.filter(({ cov }) => cov.total === 0).length
 
@@ -97,13 +104,15 @@ export function RequirementsPage() {
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
 
-  const openAdd = () => { setEditing(null); setForm(blankForm()); setTcSearch(''); setShowForm(true) }
+  const openAdd = () => { setEditing(null); setForm(blankForm(selectedFolder && selectedFolder !== 'unfiled' ? selectedFolder : null)); setTcSearch(''); setShowForm(true) }
   const openEdit = (req) => {
     setEditing(req)
     setForm({
       key: req.key || '',
       title: req.title || '',
       description: req.description || '',
+      acceptanceCriteriaText: (req.acceptanceCriteria || []).join('\n'),
+      folderId: req.folderId || null,
       priority: req.priority || 'Medium',
       testCaseIds: req.testCaseIds || [],
     })
@@ -116,17 +125,23 @@ export function RequirementsPage() {
     testCaseIds: f.testCaseIds.includes(id) ? f.testCaseIds.filter((x) => x !== id) : [...f.testCaseIds, id],
   }))
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault()
     if (!form.title.trim()) return
-    if (editing) {
-      updateRequirement({ ...editing, ...form, title: form.title.trim() })
-      toast.success('Requirement updated')
-    } else {
-      addRequirement({ ...form, title: form.title.trim() })
-      toast.success('Requirement added')
+    try {
+      const { acceptanceCriteriaText, ...fields } = form
+      const payload = { ...fields, title: form.title.trim(), acceptanceCriteria: acceptanceCriteriaText.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) }
+      if (editing) {
+        await updateRequirement({ ...editing, ...payload })
+        toast.success('Requirement updated')
+      } else {
+        await addRequirement(payload)
+        toast.success('Requirement added')
+      }
+      setShowForm(false)
+    } catch (error) {
+      toast.error(error.message || 'Could not save requirement')
     }
-    setShowForm(false)
   }
 
   const handleDelete = async (req) => {
@@ -136,7 +151,10 @@ export function RequirementsPage() {
       confirmLabel: 'Delete',
       danger: true,
     })
-    if (ok) { removeRequirement(req.id); toast.success('Requirement deleted') }
+    if (ok) {
+      try { await removeRequirement(req.id); toast.success('Requirement deleted') }
+      catch (error) { toast.error(error.message || 'Could not delete requirement') }
+    }
   }
 
   const filteredTcs = testCases
@@ -171,6 +189,7 @@ export function RequirementsPage() {
           action={
             <div className="page-actions-row">
               <Link to={`/projects/${projectId}/requirements`} className="secondary-button">Back</Link>
+              {isLead && <Link to={`/projects/${projectId}/test-cases?newFor=${req.id}`} className="primary-button">+ Create linked test case</Link>}
               {cov.total > 0 && isLead && (
                 <Link 
                   to={`/projects/${projectId}/test-runs?runCases=${req.testCaseIds.join(',')}&reqId=${req.id}&reqKey=${encodeURIComponent(req.key || '')}&reqTitle=${encodeURIComponent(req.title)}`} 
@@ -180,7 +199,7 @@ export function RequirementsPage() {
                   Run linked tests ({cov.total})
                 </Link>
               )}
-              <button className="secondary-button" type="button" onClick={() => openEdit(req)}>Edit requirement</button>
+              {isLead && <button className="secondary-button" type="button" onClick={() => openEdit(req)}>Edit requirement</button>}
             </div>
           }
         />
@@ -196,12 +215,20 @@ export function RequirementsPage() {
           </div>
 
           <div className="req-detail-meta">
+            <div><span>Folder</span><strong>{req.folderId ? folderPath(folders, req.folderId) : 'Unfiled'}</strong></div>
             <div><span>Priority</span><strong>{req.priority || 'Medium'}</strong></div>
             <div><span>Linked cases</span><strong>{cov.total}</strong></div>
             <div><span>Passed</span><strong>{cov.passed}</strong></div>
             <div><span>Failed/blocking</span><strong>{cov.failed}</strong></div>
             <div><span>Progress</span><strong>{cov.pct}%</strong></div>
           </div>
+
+          {(req.acceptanceCriteria || []).length > 0 && (
+            <section className="req-acceptance-criteria" aria-label="Acceptance criteria">
+              <h3>Acceptance criteria</h3>
+              <ol>{req.acceptanceCriteria.map((criterion, index) => <li key={`${index}-${criterion}`}>{criterion}</li>)}</ol>
+            </section>
+          )}
 
           <div className="req-progress-cell req-detail-progress">
             <div className="req-progress-track">
@@ -315,7 +342,18 @@ export function RequirementsPage() {
               </label>
               <label>
                 Description
-                <textarea rows={3} value={form.description} onChange={set('description')} placeholder="What this requirement means / acceptance criteria…" />
+                <textarea rows={3} value={form.description} onChange={set('description')} placeholder="What this requirement means…" />
+              </label>
+              <label>
+                Acceptance criteria <span className="hint">(one per line)</span>
+                <textarea rows={4} value={form.acceptanceCriteriaText} onChange={set('acceptanceCriteriaText')} placeholder={'Valid payment creates one order\nInvalid payment does not create an order'} />
+              </label>
+              <label>
+                Folder
+                <select value={form.folderId || ''} onChange={(e) => setForm((before) => ({ ...before, folderId: e.target.value || null }))}>
+                  <option value="">Unfiled</option>
+                  {folders.map((folder) => <option key={folder.id} value={folder.id}>{folderPath(folders, folder.id)}</option>)}
+                </select>
               </label>
               <div>
                 <label>Linked test cases <span className="hint">({form.testCaseIds.length} selected)</span></label>
@@ -364,10 +402,10 @@ export function RequirementsPage() {
       <PageHeader
         title="Requirements"
         description="Track which features are covered by tests and whether they pass."
-        action={
+        action={isLead &&
           <div className="page-actions-row">
             <button className="secondary-button" type="button" onClick={() => setShowImport(true)}>Import CSV</button>
-            <button className="primary-button" type="button" onClick={openAdd}>+ Add requirement</button>
+            {isLead && <button className="primary-button" type="button" onClick={openAdd}>+ Add requirement</button>}
           </div>
         }
       />
@@ -427,7 +465,14 @@ export function RequirementsPage() {
         </section>
       )}
 
-      <section className="panel">
+      <div className="tc-page-layout">
+        <ProjectFolderTree
+          folders={folders} items={requirements} selectedId={selectedFolder}
+          onSelect={setSelectedFolder} typeLabel="requirements" isLead={isLead}
+          createFolder={createFolder} updateFolder={updateFolder} deleteFolder={deleteFolder}
+          onChanged={refreshRequirements}
+        />
+      <section className="panel tc-main-panel">
         <div className="section-header">
           <h2>Requirements</h2>
           {totalReqs > 0 && <StatusPill tone="neutral">{totalReqs}</StatusPill>}
@@ -454,10 +499,10 @@ export function RequirementsPage() {
             </div>
             <h3>No requirements yet</h3>
             <p>Add your first requirement and link the test cases that verify it.</p>
-            <button className="primary-button" type="button" onClick={openAdd}>+ Add requirement</button>
+            {isLead && <button className="primary-button" type="button" onClick={openAdd}>+ Add requirement</button>}
           </div>
         ) : (
-          <div className="table-wrap">
+          <div className="table-wrap req-table-wrap">
             <table className="req-table">
               <colgroup>
                 <col className="req-col-key" />
@@ -483,7 +528,7 @@ export function RequirementsPage() {
                 {filteredRows.length === 0 ? (
                   <tr>
                     <td colSpan={7}>
-                      <span className="empty-table-message">No requirements match your search.</span>
+                      <span className="empty-table-message">{search ? 'No requirements match your search.' : selectedFolder ? 'No requirements in this folder.' : 'No requirements found.'}</span>
                     </td>
                   </tr>
                 ) : filteredRows.map(({ req, cov }) => (
@@ -504,6 +549,7 @@ export function RequirementsPage() {
                         className={`inline-select status-select priority-${(req.priority || 'medium').toLowerCase()}`}
                         value={req.priority || 'Medium'}
                         aria-label="Requirement priority"
+                        disabled={!isLead}
                         onChange={(e) => updateRequirement({ ...req, priority: e.target.value })}
                       >
                         {PRIORITIES.map((p) => <option key={p}>{p}</option>)}
@@ -542,12 +588,12 @@ export function RequirementsPage() {
                             </svg>
                           </Link>
                         )}
-                        <button className="icon-btn-action" type="button" aria-label="Edit requirement" title="Edit" onClick={() => openEdit(req)}>
+                        {isLead && <button className="icon-btn-action" type="button" aria-label="Edit requirement" title="Edit" onClick={() => openEdit(req)}>
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
-                        </button>
-                        <button className="icon-btn-action text-danger" type="button" aria-label="Delete requirement" title="Delete" onClick={() => handleDelete(req)}>
+                        </button>}
+                        {isLead && <button className="icon-btn-action text-danger" type="button" aria-label="Delete requirement" title="Delete" onClick={() => handleDelete(req)}>
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
-                        </button>
+                        </button>}
                       </div>
                     </td>
                   </tr>
@@ -557,6 +603,7 @@ export function RequirementsPage() {
           </div>
         )}
       </section>
+      </div>
 
       {showForm && (
         <Modal title={editing ? 'Edit requirement' : 'New requirement'} onClose={() => setShowForm(false)}>
@@ -579,7 +626,18 @@ export function RequirementsPage() {
             </label>
             <label>
               Description
-              <textarea rows={3} value={form.description} onChange={set('description')} placeholder="What this requirement means / acceptance criteria…" />
+              <textarea rows={3} value={form.description} onChange={set('description')} placeholder="What this requirement means…" />
+            </label>
+            <label>
+              Acceptance criteria <span className="hint">(one per line)</span>
+              <textarea rows={4} value={form.acceptanceCriteriaText} onChange={set('acceptanceCriteriaText')} placeholder={'Valid payment creates one order\nInvalid payment does not create an order'} />
+            </label>
+            <label>
+              Folder
+              <select value={form.folderId || ''} onChange={(e) => setForm((before) => ({ ...before, folderId: e.target.value || null }))}>
+                <option value="">Unfiled</option>
+                {folders.map((folder) => <option key={folder.id} value={folder.id}>{folderPath(folders, folder.id)}</option>)}
+              </select>
             </label>
             <div>
               <label>Linked test cases <span className="hint">({form.testCaseIds.length} selected)</span></label>
@@ -624,8 +682,10 @@ export function RequirementsPage() {
         open={showImport}
         onClose={() => setShowImport(false)}
         testCases={testCases}
-        projectId={projectId}
-        onImport={(data) => addRequirement(data)}
+        requirements={requirements}
+        folders={folders}
+        onImportBatch={addRequirements}
+        onUpdate={updateRequirement}
       />
     </>
   )

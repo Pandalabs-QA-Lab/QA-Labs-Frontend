@@ -71,6 +71,11 @@ export function AuthProvider({ children }) {
     setAuthUser((prev) => ({ ...prev, displayName: user.displayName }))
   }
 
+  const changePassword = async (currentPassword, newPassword) => {
+    const { user } = await api.patch('/auth/password', { currentPassword, newPassword })
+    setAuthUser(user)
+  }
+
   const switchWorkspace = async (workspaceId) => {
     const session = await api.post(`/auth/workspaces/${workspaceId}/select`, {})
     setToken(session.token)
@@ -89,6 +94,7 @@ export function AuthProvider({ children }) {
       register,
       signOut,
       updateDisplayName,
+      changePassword,
       switchWorkspace,
     }}>
       {children}

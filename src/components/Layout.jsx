@@ -12,6 +12,7 @@ import { useNotifications } from '../hooks/useNotifications'
 import { useUserRole } from '../hooks/useUserRole'
 import { useSwipeBack } from '../hooks/useSwipeBack'
 import { ScrollToTopButton } from './ScrollToTopButton'
+import { api } from '../api/client'
 
 
 const globalNav = [
@@ -22,16 +23,22 @@ const globalNav = [
   { label: 'Backup', to: '/backup', icon: 'backup' },
 ]
 
-const projectNav = [
-  { label: 'Dashboard', path: 'dashboard', icon: 'dashboard' },
-  { label: 'Test cases', path: 'test-cases', icon: 'cases' },
-  { label: 'Requirements', path: 'requirements', icon: 'requirements' },
-  { label: 'Coverage Matrix', path: 'coverage-matrix', icon: 'matrix' },
-  { label: 'Test runs', path: 'test-runs', icon: 'runs' },
-  { label: 'Test plans', path: 'test-plans', icon: 'plans' },
-  { label: 'Bug tracker', path: 'bugs', icon: 'bug' },
-  { label: 'Reports', path: 'reports', icon: 'reports' },
-  { label: 'Settings', path: 'settings', icon: 'settings' },
+const projectNavGroups = [
+  { label: 'Overview', items: [{ label: 'Dashboard', path: 'dashboard', icon: 'dashboard' }] },
+  { label: 'Plan', items: [
+    { label: 'Requirements', path: 'requirements', icon: 'requirements' },
+    { label: 'Test cases', path: 'test-cases', icon: 'cases' },
+    { label: 'Test plans', path: 'test-plans', icon: 'plans' },
+  ] },
+  { label: 'Execute', items: [
+    { label: 'Test runs', path: 'test-runs', icon: 'runs' },
+    { label: 'Bug tracker', path: 'bugs', icon: 'bug' },
+  ] },
+  { label: 'Review', items: [
+    { label: 'Coverage Matrix', path: 'coverage-matrix', icon: 'matrix' },
+    { label: 'Reports', path: 'reports', icon: 'reports' },
+  ] },
+  { label: 'Manage', items: [{ label: 'Settings', path: 'settings', icon: 'settings' }] },
 ]
 
 function Icon({ name }) {
@@ -139,9 +146,12 @@ function ProjectSidebar({ projectId }) {
   const project = projects.find((p) => p.id === projectId)
   const base = `/projects/${projectId}`
 
-  const visibleNav = isLead
-    ? projectNav
-    : projectNav.filter((item) => item.path !== 'settings')
+  const visibleNav = projectNavGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => isLead || item.path !== 'settings'),
+    }))
+    .filter((group) => group.items.length > 0)
 
   return (
     <aside className="project-sidebar" aria-label="Project navigation">
@@ -150,11 +160,16 @@ function ProjectSidebar({ projectId }) {
         <strong>{project?.name ?? 'Unknown'}</strong>
       </div>
       <nav>
-        {visibleNav.map((item) => (
-          <NavLink key={item.path} to={`${base}/${item.path}`}>
-            <Icon name={item.icon} />
-            <span>{item.label}</span>
-          </NavLink>
+        {visibleNav.map((group) => (
+          <div className="project-nav-group" key={group.label}>
+            <span className="project-nav-heading">{group.label}</span>
+            {group.items.map((item) => (
+              <NavLink key={item.path} to={`${base}/${item.path}`}>
+                <Icon name={item.icon} />
+                <span>{item.label}</span>
+              </NavLink>
+            ))}
+          </div>
         ))}
       </nav>
     </aside>
@@ -221,9 +236,20 @@ function BellIcon(props) {
 
 function NotificationCenter() {
   const { notifications, unreadCount, markAsRead, markAllAsRead, clearAll } = useNotifications()
+  const [invitations, setInvitations] = useState([])
   const [open, setOpen] = useState(false)
   const dropdownRef = useRef(null)
   const navigate = useNavigate()
+
+  useEffect(() => {
+    let active = true
+    const refresh = () => api.get('/invites/pending')
+      .then((rows) => { if (active) setInvitations(rows) })
+      .catch(() => {})
+    refresh()
+    const timer = setInterval(refresh, 60000)
+    return () => { active = false; clearInterval(timer) }
+  }, [])
 
   useEffect(() => {
     if (!open) return undefined
@@ -250,12 +276,12 @@ function NotificationCenter() {
     <div className="notification-center-wrap" ref={dropdownRef}>
       <button
         type="button"
-        className={`notification-bell-btn ${unreadCount > 0 ? 'has-unread' : ''}`}
+        className={`notification-bell-btn ${unreadCount + invitations.length > 0 ? 'has-unread' : ''}`}
         onClick={() => setOpen(!open)}
-        aria-label={`Notifications, ${unreadCount} unread`}
+        aria-label={`Notifications, ${unreadCount} unread and ${invitations.length} invitations`}
       >
         <BellIcon />
-        {unreadCount > 0 && <span className="notification-badge-dot" />}
+        {unreadCount + invitations.length > 0 && <span className="notification-badge-dot" />}
       </button>
 
       {open && (
@@ -277,7 +303,19 @@ function NotificationCenter() {
           </div>
 
           <div className="notification-list">
-            {notifications.length === 0 ? (
+            {invitations.map((invite) => <a
+              key={invite.id}
+              className="notification-item unread"
+              href={`#/join/${invite.token}`}
+              onClick={() => setOpen(false)}
+            >
+              <div className="notification-item-content">
+                <div className="notification-message">Invitation to {invite.projectName ? `${invite.projectName} · ${invite.workspaceName}` : invite.workspaceName}</div>
+                <div className="notification-time">Review and accept</div>
+              </div>
+              <div className="unread-bullet" />
+            </a>)}
+            {notifications.length === 0 && invitations.length === 0 ? (
               <div className="notification-empty">
                 No new notifications
               </div>

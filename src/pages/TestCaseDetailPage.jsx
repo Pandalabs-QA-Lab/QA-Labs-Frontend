@@ -19,9 +19,10 @@ import { useProjects } from '../hooks/useProjects'
 import { getProjectMembers } from '../utils/projectMembers'
 import { describeTestCaseChanges, historyEntry, withHistory } from '../utils/history'
 import { newId } from '../utils/id'
-import { STATUS_TONE, TEST_STATUSES } from '../utils/status'
+import { STATUS_TONE, TEST_STATUSES, normalizeTestStatus } from '../utils/status'
 import { ArrowRightIcon } from '../components/Icons'
 import { useUserRole } from '../hooks/useUserRole'
+import { useProjectFolders, folderPath } from '../hooks/useProjectFolders'
 
 const severityTone = { Critical: 'failed', Major: 'pending', Minor: 'passed' }
 const PRIORITIES = ['High', 'Med', 'Low']
@@ -38,6 +39,7 @@ export function TestCaseDetailPage() {
   const { projects } = useProjects()
   const { activities } = useActivity()
   const { sharedSteps } = useSharedSteps(projectId)
+  const { folders } = useProjectFolders(projectId)
   const navigate = useNavigate()
 
   // Assignee options are scoped to people attached to this project (memberIds)
@@ -80,6 +82,7 @@ export function TestCaseDetailPage() {
   const openEdit = () => {
     setForm({
       title: tc.title, module: tc.module || '', scenario: tc.scenario || '',
+      folder: tc.folder || '', folderId: tc.folderId || null,
       preconditions: tc.preconditions || '', priority: tc.priority || 'Med',
       assignee: tc.assignee || '', steps: steps.length ? [...steps] : [''],
       testData: tc.testData || '', expected: tc.expected || '', actual: tc.actual || '',
@@ -185,7 +188,7 @@ export function TestCaseDetailPage() {
           <div className="panel detail-main">
             <div className="detail-title-row">
               <h2>Overview</h2>
-              <StatusPill tone={STATUS_TONE[tc.status]}>{tc.status}</StatusPill>
+              <StatusPill tone={STATUS_TONE[normalizeTestStatus(tc.status)] ?? 'pending'}>{normalizeTestStatus(tc.status)}</StatusPill>
             </div>
             
             <div className="detail-content-grid">
@@ -391,6 +394,7 @@ export function TestCaseDetailPage() {
 
         <aside className="panel detail-aside">
           <dl>
+            <div><dt>Folder</dt><dd>{tc.folderId ? folderPath(folders, tc.folderId) || tc.folder || 'Unfiled' : (tc.folder || 'Unfiled')}</dd></div>
             <div><dt>Priority</dt><dd><span className={`priority-badge priority-${tc.priority?.toLowerCase()}`}>{tc.priority || '—'}</span></dd></div>
             <div><dt>Assignee</dt><dd>{tc.assignee || '—'}</dd></div>
             {tc.tags?.length > 0 && (
@@ -433,6 +437,18 @@ export function TestCaseDetailPage() {
               <input autoFocus value={form.title} onChange={set('title')} />
             </label>
             <div className="form-row">
+              <label>Folder
+                <select
+                  value={form.folderId || ''}
+                  onChange={(e) => {
+                    const folderId = e.target.value || null
+                    setForm((f) => ({ ...f, folderId, folder: folderId ? folderPath(folders, folderId) : '' }))
+                  }}
+                >
+                  <option value="">Unfiled</option>
+                  {folders.map((folder) => <option key={folder.id} value={folder.id}>{folderPath(folders, folder.id)}</option>)}
+                </select>
+              </label>
               <label>Module<input value={form.module} onChange={set('module')} placeholder="Auth, E2E…" /></label>
               <label>Priority
                 <select value={form.priority} onChange={set('priority')}>
