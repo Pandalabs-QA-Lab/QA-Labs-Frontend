@@ -867,7 +867,7 @@ export function TestRunsPage() {
           {testCases.length === 0 ? (
             <div className="empty-table-row">No test cases available for this project.</div>
           ) : (
-            <div className="table-wrap">
+            <div className="table-wrap table-wrap--mobile-cards">
               <table className="run-case-picker-table">
                 <colgroup>
                   <col className="rcp-col-check" />
@@ -1380,7 +1380,7 @@ export function TestRunsPage() {
               Search by run name, build, owner, date, or result count.
             </span>
           </div>
-          <div className="table-wrap">
+          <div className="table-wrap table-wrap--mobile-cards">
             <table className="run-list-table">
               <colgroup>
                 <col className="rl-col-date" />

@@ -224,7 +224,7 @@ export function DashboardPage() {
             View all <ArrowRightIcon width={14} height={14} />
           </Link>
         </div>
-        <div className="table-wrap">
+        <div className="table-wrap table-wrap--mobile-cards">
           <table>
             <thead>
               <tr>

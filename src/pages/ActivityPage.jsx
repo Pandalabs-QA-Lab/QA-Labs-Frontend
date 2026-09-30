@@ -228,7 +228,7 @@ export function ActivityPage() {
         </section>
       ) : (
         <section className="panel" style={{ padding: 0 }}>
-          <div className="table-wrap">
+          <div className="table-wrap table-wrap--mobile-cards">
             <table className="activities-table">
               <thead>
                 <tr>

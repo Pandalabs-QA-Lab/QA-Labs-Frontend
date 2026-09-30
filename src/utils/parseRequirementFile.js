@@ -10,6 +10,10 @@ const COL = {
   'requirement title': 'title',
   'description': 'description',
   'desc': 'description',
+  'acceptance criteria': 'acceptanceCriteriaRaw',
+  'criteria': 'acceptanceCriteriaRaw',
+  'folder': 'folderPathRaw',
+  'folder path': 'folderPathRaw',
   'priority': 'priority',
   'test case ids': 'testCaseIdsRaw',
   'test cases': 'testCaseIdsRaw',
@@ -23,12 +27,18 @@ function normaliseHeader(h) {
   return String(h ?? '').toLowerCase().trim()
 }
 
-function splitTcIds(raw) {
+export function splitRequirementRefs(raw) {
   if (!raw) return []
   return String(raw)
     .split(/[,;|]/)
     .map((s) => s.trim())
     .filter(Boolean)
+}
+
+export function matchingTestCases(testCases, reference) {
+  const key = String(reference).trim().toLowerCase()
+  return testCases.filter((tc) => [tc.sourceTcId, tc.id, tc.id?.slice(0, 8)].some((id) =>
+    String(id || '').trim().toLowerCase() === key))
 }
 
 /**
@@ -77,7 +87,9 @@ export function parseRequirementFile(buffer, filename) {
     })
 
     data.testCaseIdsRaw = data.testCaseIdsRaw || ''
-    data.priority = data.priority || 'Medium'
+    data.acceptanceCriteriaRaw = data.acceptanceCriteriaRaw || ''
+    data.folderPathRaw = data.folderPathRaw || ''
+    data.priority = data.priority || ''
 
     return { data, errors, rowNum: rowIdx + 2 }
   })
@@ -85,22 +97,18 @@ export function parseRequirementFile(buffer, filename) {
   return { rows: rows.filter((r) => !r.skip) }
 }
 
-export function rowToRequirement(data, testCases = []) {
-  const tcBySourceId = new Map(
-    testCases
-      .filter((tc) => tc.sourceTcId)
-      .map((tc) => [String(tc.sourceTcId).trim().toLowerCase(), tc.id]),
-  )
-
-  const testCaseIds = splitTcIds(data.testCaseIdsRaw)
-    .map((ref) => tcBySourceId.get(ref.toLowerCase()))
+export function rowToRequirement(data, testCases = [], folderId = null) {
+  const testCaseIds = splitRequirementRefs(data.testCaseIdsRaw)
+    .map((ref) => matchingTestCases(testCases, ref)[0]?.id)
     .filter(Boolean)
 
   return {
-    key: data.key || '',
+    key: data.key || null,
     title: data.title.trim(),
     description: data.description || '',
-    priority: data.priority || 'Medium',
-    testCaseIds,
+    acceptanceCriteria: (data.acceptanceCriteriaRaw || '').split(/\r?\n|\|/).map((item) => item.trim()).filter(Boolean),
+    folderId,
+    priority: data.priority ? data.priority.charAt(0).toUpperCase() + data.priority.slice(1).toLowerCase() : 'Medium',
+    testCaseIds: [...new Set(testCaseIds)],
   }
 }

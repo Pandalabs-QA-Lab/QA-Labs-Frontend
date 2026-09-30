@@ -23,16 +23,22 @@ const globalNav = [
   { label: 'Backup', to: '/backup', icon: 'backup' },
 ]
 
-const projectNav = [
-  { label: 'Dashboard', path: 'dashboard', icon: 'dashboard' },
-  { label: 'Test cases', path: 'test-cases', icon: 'cases' },
-  { label: 'Requirements', path: 'requirements', icon: 'requirements' },
-  { label: 'Coverage Matrix', path: 'coverage-matrix', icon: 'matrix' },
-  { label: 'Test runs', path: 'test-runs', icon: 'runs' },
-  { label: 'Test plans', path: 'test-plans', icon: 'plans' },
-  { label: 'Bug tracker', path: 'bugs', icon: 'bug' },
-  { label: 'Reports', path: 'reports', icon: 'reports' },
-  { label: 'Settings', path: 'settings', icon: 'settings' },
+const projectNavGroups = [
+  { label: 'Overview', items: [{ label: 'Dashboard', path: 'dashboard', icon: 'dashboard' }] },
+  { label: 'Plan', items: [
+    { label: 'Requirements', path: 'requirements', icon: 'requirements' },
+    { label: 'Test cases', path: 'test-cases', icon: 'cases' },
+    { label: 'Test plans', path: 'test-plans', icon: 'plans' },
+  ] },
+  { label: 'Execute', items: [
+    { label: 'Test runs', path: 'test-runs', icon: 'runs' },
+    { label: 'Bug tracker', path: 'bugs', icon: 'bug' },
+  ] },
+  { label: 'Review', items: [
+    { label: 'Coverage Matrix', path: 'coverage-matrix', icon: 'matrix' },
+    { label: 'Reports', path: 'reports', icon: 'reports' },
+  ] },
+  { label: 'Manage', items: [{ label: 'Settings', path: 'settings', icon: 'settings' }] },
 ]
 
 function Icon({ name }) {
@@ -140,9 +146,12 @@ function ProjectSidebar({ projectId }) {
   const project = projects.find((p) => p.id === projectId)
   const base = `/projects/${projectId}`
 
-  const visibleNav = isLead
-    ? projectNav
-    : projectNav.filter((item) => item.path !== 'settings')
+  const visibleNav = projectNavGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => isLead || item.path !== 'settings'),
+    }))
+    .filter((group) => group.items.length > 0)
 
   return (
     <aside className="project-sidebar" aria-label="Project navigation">
@@ -151,11 +160,16 @@ function ProjectSidebar({ projectId }) {
         <strong>{project?.name ?? 'Unknown'}</strong>
       </div>
       <nav>
-        {visibleNav.map((item) => (
-          <NavLink key={item.path} to={`${base}/${item.path}`}>
-            <Icon name={item.icon} />
-            <span>{item.label}</span>
-          </NavLink>
+        {visibleNav.map((group) => (
+          <div className="project-nav-group" key={group.label}>
+            <span className="project-nav-heading">{group.label}</span>
+            {group.items.map((item) => (
+              <NavLink key={item.path} to={`${base}/${item.path}`}>
+                <Icon name={item.icon} />
+                <span>{item.label}</span>
+              </NavLink>
+            ))}
+          </div>
         ))}
       </nav>
     </aside>

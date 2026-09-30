@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { UploadIcon, DownloadIcon, PencilIcon, CopyIcon, XIcon, ChevronLeftIcon, ChevronRightIcon, SortAscIcon, SortDescIcon, SortNoneIcon, ArrowRightIcon } from '../components/Icons'
 import { useSortable } from '../hooks/useSortable'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
@@ -11,6 +11,9 @@ import { useConfirm } from '../context/useConfirm'
 import { useToast } from '../context/useToast'
 import { useTeamMembers } from '../hooks/useTeamMembers'
 import { useTestCases } from '../hooks/useTestCases'
+import { useRequirements } from '../hooks/useRequirements'
+import { useProjectFolders, folderIdsInBranch, folderPath } from '../hooks/useProjectFolders'
+import { ProjectFolderTree } from '../components/ProjectFolderTree'
 import { useBugs } from '../hooks/useBugs'
 import { useProjects } from '../hooks/useProjects'
 import { useUser } from '../context/UserContext'
@@ -41,7 +44,7 @@ const BUG_STATUSES = ['Open', 'In review', 'Closed']
 const getTestCaseDisplayId = (tc) => tc.sourceTcId || tc.id.slice(0, 8).toUpperCase()
 
 const blankForm = (overrides = {}) => ({
-  title: '', folder: '', module: '', scenario: '', preconditions: '', priority: 'Med',
+  title: '', folder: '', folderId: null, requirementIds: [], module: '', scenario: '', preconditions: '', priority: 'Med',
   assignee: '', steps: [''], testData: '', expected: '', actual: '',
   status: 'Not Executed', devRemarks: '', qaRemarks: '', tags: [],
   ...overrides,
@@ -49,18 +52,21 @@ const blankForm = (overrides = {}) => ({
 
 export function TestCasesPage() {
   const { projectId } = useParams()
-  const [searchParams] = useSearchParams()
-  const { testCases, addTestCase, updateTestCase, removeTestCase, removeTestCases } = useTestCases(projectId)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const { testCases, addTestCase, updateTestCase, removeTestCase, removeTestCases, refresh: refreshTestCases } = useTestCases(projectId)
+  const { requirements, updateRequirement } = useRequirements(projectId)
+  const { folders, createFolder, updateFolder, deleteFolder } = useProjectFolders(projectId)
   const { addBug } = useBugs(projectId)
   const { members } = useTeamMembers()
   const { projects } = useProjects()
   const { user } = useUser()
-  const { isLead } = useUserRole()
+  const { isLead, isViewer } = useUserRole()
   const projectName = projects.find((p) => p.id === projectId)?.name ?? projectId
   const confirm = useConfirm()
   const toast = useToast()
 
   const [showAdd, setShowAdd] = useState(false)
+  const [reqSearch, setReqSearch] = useState('')
   const [showBulk, setShowBulk] = useState(false)
   const [editTc, setEditTc] = useState(null)   // tc being edited
   const [form, setForm] = useState(blankForm)
@@ -71,10 +77,6 @@ export function TestCasesPage() {
   const [fAssignee, setFAssignee] = useState(() => searchParams.get('assignee') || '')
   const [fFolder, setFFolder] = useState(() => searchParams.get('folder') || '')
   const [bulkMoveFolder, setBulkMoveFolder] = useState('')
-  const [showFolderModal, setShowFolderModal] = useState(false)
-  const [folderModalName, setFolderModalName] = useState('')
-  const [folderModalModules, setFolderModalModules] = useState(new Set())
-  const [folderModalEditTarget, setFolderModalEditTarget] = useState(null) // null = create, string = folder being edited
   const [fTag, setFTag] = useState(() => searchParams.get('tag') || '')
   const [pageSize, setPageSize] = useState(10)
   const [page, setPage] = useState(1)
@@ -93,9 +95,24 @@ export function TestCasesPage() {
 
   const openAddModal = useCallback(() => {
     setEditTc(null)
-    setForm(blankForm({ folder: fFolder, module: fModule }))
+    setReqSearch('')
+    const folderId = fFolder && fFolder !== 'unfiled' ? fFolder : null
+    setForm(blankForm({ folderId, folder: folderId ? folderPath(folders, folderId) : '', module: fModule }))
     setShowAdd(true)
-  }, [fFolder, fModule])
+  }, [fFolder, fModule, folders])
+
+  useEffect(() => {
+    const requirementId = searchParams.get('newFor')
+    const requirement = requirements.find((item) => item.id === requirementId)
+    if (!requirement || !isLead) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- open the user-requested create flow after requirement data loads
+    setForm(blankForm({ folderId: requirement.folderId || null, folder: folderPath(folders, requirement.folderId), requirementIds: [requirement.id] }))
+    setEditTc(null)
+    setShowAdd(true)
+    const next = new URLSearchParams(searchParams)
+    next.delete('newFor')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams, requirements, folders, isLead])
 
   const handleEscape = useCallback(() => {
     if (showAdd) {
@@ -234,37 +251,52 @@ export function TestCasesPage() {
   }
 
   const setBug = (k) => (e) => setBugForm((f) => ({ ...f, [k]: e.target.value }))
-  const clearFilters = () => { setSearch(''); setFPriority(''); setFStatus(''); setFModule(''); setFAssignee(''); setFTag(''); setFFolder(''); setPage(1) }
-  const activeFilterCount = [search, fPriority, fStatus, fModule, fAssignee, fTag, fFolder].filter(Boolean).length
+  const clearFilters = () => { setSearch(''); setFPriority(''); setFStatus(''); setFModule(''); setFAssignee(''); setFTag(''); setPage(1) }
+  const activeFilterCount = [search, fPriority, fStatus, fModule, fAssignee, fTag].filter(Boolean).length
   const filterByTag = (tag) => { setFTag((cur) => (cur === tag ? '' : tag)); setPage(1) }
 
-  const handleAdd = (e) => {
+  const handleAdd = async (e) => {
     e.preventDefault()
     if (!form.title.trim() || !form.expected.trim()) return
-    if (editTc) {
-      const updated = { ...editTc, ...form, steps: form.steps.filter(Boolean), updatedAt: new Date().toISOString(), updatedBy: user }
-      const changes = describeTestCaseChanges(editTc, updated)
-      updateTestCase(changes.length
-        ? withHistory(updated, historyEntry('update', user, changes.join(', ')))
-        : updated)
+    let savedCase
+    const wasEditing = Boolean(editTc)
+    try {
+      const { requirementIds, ...caseFields } = form
+      if (editTc) {
+        const updated = { ...editTc, ...caseFields, steps: form.steps.filter(Boolean), updatedAt: new Date().toISOString(), updatedBy: user }
+        const changes = describeTestCaseChanges(editTc, updated)
+        savedCase = await updateTestCase(changes.length
+          ? withHistory(updated, historyEntry('update', user, changes.join(', ')))
+          : updated)
+        setEditTc(null)
+      } else {
+        savedCase = await addTestCase({
+          ...caseFields,
+          steps: form.steps.filter(Boolean),
+          history: [historyEntry('created', user, 'Test case created')],
+        })
+      }
+      setForm(blankForm)
+      setShowAdd(false)
       setEditTc(null)
-      toast.success('Test case updated')
-    } else {
-      addTestCase({
-        ...form,
-        steps: form.steps.filter(Boolean),
-        history: [historyEntry('created', user, 'Test case created')],
-      })
-      toast.success('Test case added')
+      const changedLinks = requirements.filter((req) => (req.testCaseIds || []).includes(savedCase.id) !== requirementIds.includes(req.id))
+      await Promise.all(changedLinks.map((req) => updateRequirement({
+        ...req,
+        testCaseIds: requirementIds.includes(req.id)
+          ? [...new Set([...(req.testCaseIds || []), savedCase.id])]
+          : (req.testCaseIds || []).filter((id) => id !== savedCase.id),
+      })))
+      toast.success(wasEditing ? 'Test case and links updated' : 'Test case and links added')
+    } catch (error) {
+      toast.error(savedCase ? `Test case saved, but links could not be updated: ${error.message}` : (error.message || 'Could not save test case'))
     }
-    setForm(blankForm)
-    setShowAdd(false)
   }
 
   const openEdit = (tc) => {
     setEditTc(tc)
+    setReqSearch('')
     setForm({
-      title: tc.title || '', folder: tc.folder || '', module: tc.module || '', scenario: tc.scenario || '',
+      title: tc.title || '', folder: tc.folder || '', folderId: tc.folderId || null, requirementIds: requirements.filter((req) => (req.testCaseIds || []).includes(tc.id)).map((req) => req.id), module: tc.module || '', scenario: tc.scenario || '',
       preconditions: tc.preconditions || '', priority: tc.priority || 'Med',
       assignee: tc.assignee || '', steps: tc.steps?.length ? [...tc.steps] : [''],
       testData: tc.testData || '', expected: tc.expected || '', actual: tc.actual || '',
@@ -349,118 +381,36 @@ export function TestCasesPage() {
     addTestCase(clone)
   }
 
-  const allModulesList = useMemo(() => {
-    const map = {}
-    testCases.forEach((tc) => {
-      const m = tc.module || ''
-      if (!map[m]) map[m] = { name: m, count: 0 }
-      map[m].count++
-    })
-    return Object.values(map).sort((a, b) => a.name.localeCompare(b.name))
-  }, [testCases])
+  const selectedFolderIds = useMemo(() => folderIdsInBranch(folders, fFolder), [folders, fFolder])
 
-  // For each module, which folder owns it (if any)?
-  const moduleToFolder = useMemo(() => {
-    const map = {}
-    testCases.forEach((tc) => {
-      const m = tc.module || ''
-      const f = tc.folder || ''
-      if (!f) return
-      if (!map[m]) map[m] = f
-      else if (map[m] !== f) map[m] = '__mixed__'
-    })
-    return map
-  }, [testCases])
-
-  const openEditFolder = (folder) => {
-    const modulesInFolder = new Set(
-      testCases.filter((tc) => (tc.folder || '') === folder.name).map((tc) => tc.module || '')
-    )
-    setFolderModalEditTarget(folder.name)
-    setFolderModalName(folder.name)
-    setFolderModalModules(modulesInFolder)
-    setShowFolderModal(true)
+  const handleBulkMoveToFolder = async () => {
+    if (!bulkMoveFolder || selectedIds.length === 0) return
+    const folderId = bulkMoveFolder === 'unfiled' ? null : bulkMoveFolder
+    const folder = folderId ? folderPath(folders, folderId) : ''
+    try {
+      await Promise.all(testCases.filter((tc) => selectedIds.includes(tc.id)).map((tc) =>
+        updateTestCase({ ...tc, folderId, folder, updatedAt: new Date().toISOString() })
+      ))
+      toast.success(`Moved ${selectedIds.length} case(s)`)
+      setSelectedIds([])
+      setBulkMoveFolder('')
+    } catch (error) { toast.error(error.message || 'Could not move cases') }
   }
-
-  const handleSaveFolder = () => {
-    const name = folderModalName.trim()
-    if (!name || folderModalModules.size === 0) return
-
-    if (folderModalEditTarget) {
-      testCases.forEach((tc) => {
-        const m = tc.module || ''
-        const wasInFolder = (tc.folder || '') === folderModalEditTarget
-        const isInNewSet = folderModalModules.has(m)
-
-        if (wasInFolder && !isInNewSet) {
-          updateTestCase({ ...tc, folder: '', updatedAt: new Date().toISOString() })
-        } else if (isInNewSet && !wasInFolder) {
-          updateTestCase({ ...tc, folder: name, updatedAt: new Date().toISOString() })
-        } else if (wasInFolder && name !== folderModalEditTarget) {
-          updateTestCase({ ...tc, folder: name, updatedAt: new Date().toISOString() })
-        }
-      })
-      toast.success(`Folder "${name}" updated`)
-    } else {
-      testCases.forEach((tc) => {
-        if (folderModalModules.has(tc.module || '')) {
-          updateTestCase({ ...tc, folder: name, updatedAt: new Date().toISOString() })
-        }
-      })
-      toast.success(`Folder "${name}" created`)
-    }
-
-    setShowFolderModal(false)
-    setFolderModalName('')
-    setFolderModalModules(new Set())
-    setFolderModalEditTarget(null)
-    setFFolder(name)
-  }
-
-  const handleBulkMoveToFolder = () => {
-    if (!bulkMoveFolder.trim() || selectedIds.length === 0) return
-    const name = bulkMoveFolder.trim()
-    testCases
-      .filter((tc) => selectedIds.includes(tc.id))
-      .forEach((tc) => updateTestCase({ ...tc, folder: name, updatedAt: new Date().toISOString() }))
-    toast.success(`Moved ${selectedIds.length} case(s) to "${name}"`)
-    setSelectedIds([])
-    setBulkMoveFolder('')
-  }
-
-  // Folder tree: built from test cases that have a folder field
-  const hasAnyFolder = useMemo(() => testCases.some((tc) => tc.folder), [testCases])
-  const folderTree = useMemo(() => {
-    if (!hasAnyFolder) return []
-    const map = {}
-    testCases.forEach((tc) => {
-      const f = tc.folder || ''
-      if (!f) return
-      if (!map[f]) map[f] = { name: f, count: 0, modules: {} }
-      map[f].count++
-      const m = tc.module || ''
-      if (!map[f].modules[m]) map[f].modules[m] = { name: m, count: 0 }
-      map[f].modules[m].count++
-    })
-    return Object.values(map)
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map((f) => ({ ...f, modules: Object.values(f.modules).sort((a, b) => a.name.localeCompare(b.name)) }))
-  }, [testCases, hasAnyFolder])
 
   // Module list scoped to the active folder when one is selected
   const modules = useMemo(() => [
     ...new Set(
-      (fFolder ? testCases.filter((tc) => (tc.folder || '') === fFolder) : testCases)
+      (fFolder === 'unfiled' ? testCases.filter((tc) => !tc.folderId) : selectedFolderIds ? testCases.filter((tc) => selectedFolderIds.has(tc.folderId)) : testCases)
         .map((t) => t.module).filter(Boolean)
     )
-  ], [testCases, fFolder])
+  ], [testCases, fFolder, selectedFolderIds])
   // Unscoped module list — used for the log-bug modal's module suggestions
   const allModuleNames = useMemo(() => [...new Set(testCases.map((t) => t.module).filter(Boolean))].sort(), [testCases])
   const assignees = [...new Set(testCases.map((t) => t.assignee).filter(Boolean))]
   const allTags = [...new Set(testCases.flatMap((t) => t.tags || []))].sort((a, b) => a.localeCompare(b))
 
   const visible = sortedCases.filter((tc) => {
-    if (fFolder && (tc.folder || '') !== fFolder) return false
+    if (fFolder === 'unfiled' ? !!tc.folderId : selectedFolderIds && !selectedFolderIds.has(tc.folderId)) return false
     if (search && !tc.title.toLowerCase().includes(search.toLowerCase())) return false
     if (fPriority && tc.priority !== fPriority) return false
     if (fStatus && tc.status !== fStatus) return false
@@ -534,72 +484,14 @@ export function TestCasesPage() {
       </div>
 
       {activeTab === 'cases' ? (
-        <div className={hasAnyFolder ? 'tc-page-layout' : ''}>
-
-        {/* Folder tree sidebar — only shown when test cases have folder values */}
-        {hasAnyFolder && (
-          <aside className="tc-folder-sidebar">
-            <div className="tc-folder-sidebar-header">
-              <span className="tc-folder-sidebar-title">Folders</span>
-              {isLead && (
-                <button
-                  className="tc-folder-add-btn"
-                  type="button"
-                  title="Create folder from modules"
-                  onClick={() => { setFolderModalEditTarget(null); setFolderModalName(''); setFolderModalModules(new Set()); setShowFolderModal(true) }}
-                >
-                  +
-                </button>
-              )}
-            </div>
-            <ul className="tc-folder-tree">
-              <li
-                className={`tc-folder-all${!fFolder ? ' tc-folder-all--active' : ''}`}
-                onClick={() => { setFFolder(''); setFModule(''); setPage(1) }}
-              >
-                <span>All test cases</span>
-                <span className="tc-folder-count">{testCases.length}</span>
-              </li>
-              {folderTree.map((folder) => (
-                <li key={folder.name} className="tc-folder-group">
-                  <div
-                    className={`tc-folder-header${fFolder === folder.name ? ' tc-folder-header--active' : ''}`}
-                    onClick={() => { setFFolder((f) => f === folder.name ? '' : folder.name); setFModule(''); setPage(1) }}
-                  >
-                    <span className="tc-folder-icon">📁</span>
-                    <span className="tc-folder-name">{folder.name}</span>
-                    <span className="tc-folder-count">{folder.count}</span>
-                    {isLead && (
-                      <button
-                        className="tc-folder-edit-btn"
-                        type="button"
-                        title="Edit folder"
-                        onClick={(e) => { e.stopPropagation(); openEditFolder(folder) }}
-                      >
-                        <PencilIcon width={11} height={11} />
-                      </button>
-                    )}
-                  </div>
-                  {fFolder === folder.name && (
-                    <ul className="tc-module-list">
-                      {folder.modules.map((mod) => (
-                        <li
-                          key={mod.name || '__nomod__'}
-                          className={`tc-module-item${fModule === mod.name ? ' tc-module-item--active' : ''}`}
-                          onClick={(e) => { e.stopPropagation(); setFModule((m) => m === mod.name ? '' : mod.name); setPage(1) }}
-                        >
-                          <span className="tc-module-icon">📂</span>
-                          <span className="tc-module-name">{mod.name || '(no module)'}</span>
-                          <span className="tc-folder-count">{mod.count}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </aside>
-        )}
+        <div className="tc-page-layout">
+          <ProjectFolderTree
+            folders={folders} items={testCases} selectedId={fFolder}
+            onSelect={(id) => { setFFolder(id); setFModule(''); setPage(1) }}
+            typeLabel="test cases" isLead={isLead}
+            createFolder={createFolder} updateFolder={updateFolder} deleteFolder={deleteFolder}
+            onChanged={refreshTestCases}
+          />
 
         <section className="panel tc-main-panel">
           <div className="toolbar">
@@ -634,11 +526,14 @@ export function TestCasesPage() {
                 {allTags.map((t) => <option key={t}>{t}</option>)}
               </select>
             )}
-            {activeFilterCount > 0 && (
-              <button className="link-btn clear-filters-btn" type="button" onClick={clearFilters}>
-                Clear filters ({activeFilterCount})
-              </button>
-            )}
+            <div className="toolbar-info">
+              {activeFilterCount > 0 && (
+                <button className="filter-clear-btn" type="button" onClick={clearFilters}>
+                  Clear ({activeFilterCount})
+                </button>
+              )}
+              <span>{visible.length} of {testCases.length}</span>
+            </div>
           </div>
 
           {selectedIds.length > 0 && (
@@ -668,22 +563,21 @@ export function TestCasesPage() {
                     Delete selected
                   </button>
                   <span className="bulk-divider" />
-                  <input
-                    type="text"
+                  <select
                     value={bulkMoveFolder}
                     onChange={(e) => setBulkMoveFolder(e.target.value)}
-                    placeholder="Folder name…"
-                    list="bulk-folder-datalist"
+                    aria-label="Move selected cases to folder"
                     className="bulk-folder-input"
-                  />
-                  <datalist id="bulk-folder-datalist">
-                    {folderTree.map((f) => <option key={f.name} value={f.name} />)}
-                  </datalist>
+                  >
+                    <option value="">Choose folder</option>
+                    {folders.map((folder) => <option key={folder.id} value={folder.id}>{folderPath(folders, folder.id)}</option>)}
+                    <option value="unfiled">Unfiled</option>
+                  </select>
                   <button
                     className="secondary-button"
                     type="button"
                     onClick={handleBulkMoveToFolder}
-                    disabled={!bulkMoveFolder.trim()}
+                    disabled={!bulkMoveFolder}
                   >
                     Move to folder
                   </button>
@@ -698,7 +592,7 @@ export function TestCasesPage() {
             <div className="empty-table-row">No test cases found.</div>
           ) : (
             <>
-            <div className="table-wrap">
+            <div className="table-wrap table-wrap--mobile-cards">
               <table className="tc-table">
                 <colgroup>
                   <col className="tc-col-check" />
@@ -740,8 +634,8 @@ export function TestCasesPage() {
                           onChange={() => toggleSelected(tc.id)}
                         />
                       </td>
-                      <td className="mono">{getTestCaseDisplayId(tc)}</td>
-                      <td>
+                      <td className="mono tc-id">{getTestCaseDisplayId(tc)}</td>
+                      <td className="title-cell">
                         <Link className="tc-title-link" to={`/projects/${projectId}/test-cases/${tc.id}`}>
                           {tc.title}
                         </Link>
@@ -750,7 +644,7 @@ export function TestCasesPage() {
                       <td>{tc.module || '—'}</td>
                       <td>
                         <select
-                          className={`inline-select priority-${(tc.priority || 'Med').toLowerCase()}`}
+                          className={`inline-select status-select priority-${(tc.priority || 'Med').toLowerCase()}`}
                           value={tc.priority || 'Med'}
                           aria-label="Priority"
                           disabled={!isLead}
@@ -765,10 +659,10 @@ export function TestCasesPage() {
                       <td>{tc.assignee || '—'}</td>
                       <td>
                         <select
-                          className={`inline-select status-select status-select--${STATUS_TONE[tc.status] ?? 'neutral'}`}
-                          value={tc.status}
+                          className={`inline-select status-select status-select--${STATUS_TONE[normalizeTestStatus(tc.status)] ?? 'neutral'}`}
+                          value={normalizeTestStatus(tc.status)}
                           aria-label="Status"
-                          disabled={!isLead}
+                          disabled={isViewer}
                           onChange={(e) => handleTcStatusChange(tc, e.target.value)}
                         >
                           {TEST_STATUSES.map((s) => <option key={s}>{s}</option>)}
@@ -823,10 +717,10 @@ export function TestCasesPage() {
                         {PRIORITIES.map((p) => <option key={p}>{p}</option>)}
                       </select>
                       <select
-                        className={`inline-select status-select status-select--${STATUS_TONE[tc.status] ?? 'neutral'}`}
-                        value={tc.status}
+                        className={`inline-select status-select status-select--${STATUS_TONE[normalizeTestStatus(tc.status)] ?? 'neutral'}`}
+                        value={normalizeTestStatus(tc.status)}
                         aria-label="Status"
-                        disabled={!isLead}
+                        disabled={isViewer}
                         onChange={(e) => handleTcStatusChange(tc, e.target.value)}
                       >
                         {TEST_STATUSES.map((s) => <option key={s}>{s}</option>)}
@@ -930,7 +824,7 @@ export function TestCasesPage() {
             />
           </div>
 
-          <div className="table-wrap">
+          <div className="table-wrap table-wrap--mobile-cards">
             <table className="tc-table">
               <thead>
                 <tr>
@@ -1055,8 +949,10 @@ export function TestCasesPage() {
         <BulkUploadModal
           projectId={projectId}
           existingTestCases={testCases}
+          requirements={requirements}
           onImport={(tc) => addTestCase(tc)}
           onUpdate={(tc) => updateTestCase(tc)}
+          onLinkRequirement={updateRequirement}
           onClose={() => setShowBulk(false)}
         />
       )}
@@ -1068,15 +964,30 @@ export function TestCasesPage() {
               Test Case Title <span className="required">*</span>
               <input autoFocus value={form.title} onChange={set('title')} placeholder="What is being tested?" />
             </label>
-            {hasAnyFolder && (
-              <label>
-                Folder
-                <input value={form.folder} onChange={set('folder')} placeholder="Suite / sheet name…" list="folder-suggestions" />
-                <datalist id="folder-suggestions">
-                  {folderTree.map((f) => <option key={f.name} value={f.name} />)}
-                </datalist>
-              </label>
-            )}
+            <label>
+              Folder
+              <select value={form.folderId || ''} onChange={(e) => {
+                const folderId = e.target.value || null
+                setForm((before) => ({ ...before, folderId, folder: folderId ? folderPath(folders, folderId) : '' }))
+              }}>
+                <option value="">Unfiled</option>
+                {folders.map((folder) => <option key={folder.id} value={folder.id}>{folderPath(folders, folder.id)}</option>)}
+              </select>
+            </label>
+            <div>
+              <label htmlFor="case-requirement-search">Linked requirements <span className="hint">({form.requirementIds.length} selected)</span></label>
+              <input id="case-requirement-search" type="search" value={reqSearch} onChange={(e) => setReqSearch(e.target.value)} placeholder="Search requirement ID or title…" />
+              <div className="req-tc-picker">
+                {requirements.filter((req) => `${req.key || ''} ${req.title}`.toLowerCase().includes(reqSearch.toLowerCase())).map((req) => (
+                  <label key={req.id} className="req-tc-option">
+                    <input type="checkbox" checked={form.requirementIds.includes(req.id)} onChange={() => setForm((before) => ({ ...before, requirementIds: before.requirementIds.includes(req.id) ? before.requirementIds.filter((id) => id !== req.id) : [...before.requirementIds, req.id] }))} />
+                    <span className="mono req-tc-id">{req.key || 'Requirement'}</span>
+                    <span className="req-tc-title">{req.title}</span>
+                  </label>
+                ))}
+                {requirements.length === 0 && <p className="panel-empty-text">Add or import requirements first to link them here.</p>}
+              </div>
+            </div>
             <div className="form-row">
               <label>
                 Module
@@ -1154,84 +1065,6 @@ export function TestCasesPage() {
               <button type="submit" className="primary-button">{editTc ? 'Save changes' : 'Add test case'}</button>
             </div>
           </form>
-        </Modal>
-      )}
-
-      {showFolderModal && (
-        <Modal
-          title={folderModalEditTarget ? `Edit folder: ${folderModalEditTarget}` : 'Create folder'}
-          onClose={() => { setShowFolderModal(false); setFolderModalEditTarget(null) }}
-        >
-          <div className="modal-form">
-            <label>
-              Folder name <span className="required">*</span>
-              <input
-                autoFocus
-                value={folderModalName}
-                onChange={(e) => setFolderModalName(e.target.value)}
-                placeholder="e.g. LoginSuite, Regression…"
-              />
-            </label>
-            <div className="folder-modal-modules-label">
-              <span>Modules in this folder</span>
-              <button
-                type="button"
-                className="link-btn"
-                onClick={() => {
-                  const available = allModulesList
-                    .filter((m) => !moduleToFolder[m.name] || moduleToFolder[m.name] === folderModalEditTarget)
-                    .map((m) => m.name)
-                  const allAvailableSelected = available.every((n) => folderModalModules.has(n))
-                  setFolderModalModules(allAvailableSelected ? new Set() : new Set(available))
-                }}
-              >
-                {(() => {
-                  const available = allModulesList.filter((m) => !moduleToFolder[m.name] || moduleToFolder[m.name] === folderModalEditTarget)
-                  return available.every((m) => folderModalModules.has(m.name)) ? 'Deselect all' : 'Select all'
-                })()}
-              </button>
-            </div>
-            <div className="folder-modal-module-list">
-              {allModulesList.map((mod) => {
-                const ownerFolder = moduleToFolder[mod.name] || ''
-                const isOwnedByOther = ownerFolder && ownerFolder !== folderModalEditTarget && ownerFolder !== '__mixed__'
-                const isMixed = ownerFolder === '__mixed__'
-                const isDisabled = isOwnedByOther || isMixed
-                return (
-                  <label
-                    key={mod.name || '__nomod__'}
-                    className={`folder-modal-module-item${isDisabled ? ' folder-modal-module-item--disabled' : ''}`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={folderModalModules.has(mod.name)}
-                      disabled={isDisabled}
-                      onChange={() => !isDisabled && setFolderModalModules((prev) => {
-                        const next = new Set(prev)
-                        next.has(mod.name) ? next.delete(mod.name) : next.add(mod.name)
-                        return next
-                      })}
-                    />
-                    <span className="folder-modal-module-name">{mod.name || '(no module)'}</span>
-                    {isOwnedByOther && <span className="folder-modal-module-tag">in {ownerFolder}</span>}
-                    {isMixed && <span className="folder-modal-module-tag">mixed</span>}
-                    <span className="tc-folder-count">{mod.count}</span>
-                  </label>
-                )
-              })}
-            </div>
-            <div className="modal-footer" style={{ marginTop: 16 }}>
-              <button type="button" className="secondary-button" onClick={() => { setShowFolderModal(false); setFolderModalEditTarget(null) }}>Cancel</button>
-              <button
-                type="button"
-                className="primary-button"
-                disabled={!folderModalName.trim() || folderModalModules.size === 0}
-                onClick={handleSaveFolder}
-              >
-                {folderModalEditTarget ? 'Save changes' : 'Create folder'}
-              </button>
-            </div>
-          </div>
         </Modal>
       )}
 

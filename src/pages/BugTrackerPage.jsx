@@ -578,7 +578,7 @@ export function BugTrackerPage() {
           <div className="empty-table-row">No bugs found.</div>
         ) : (
           <>
-          <div className="table-wrap">
+          <div className="table-wrap table-wrap--mobile-cards">
             <table className="bug-table">
               <colgroup>
                 <col className="bug-col-id" />

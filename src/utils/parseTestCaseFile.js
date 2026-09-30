@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx'
-import { newId } from './id'
+import { newId } from './id.js'
 
 // Column aliases — maps spreadsheet header → internal key
 const COL = {
@@ -16,6 +16,8 @@ const COL = {
   'status':           'statusRaw',
   'dev remarks':      'devRemarks',
   'qa remarks':       'qaRemarks',
+  'requirement ids':  'requirementKeysRaw',
+  'requirement keys': 'requirementKeysRaw',
 }
 
 const REQUIRED = ['title', 'module', 'stepsRaw', 'expected']
@@ -39,6 +41,10 @@ function splitSteps(raw) {
     .split(/\r?\n|;|(?=\d+[.)]\s)/)
     .map((s) => s.replace(/^\d+[.)]\s*/, '').trim())
     .filter(Boolean)
+}
+
+export function splitRequirementKeys(raw) {
+  return String(raw || '').split(/[,;|]/).map((key) => key.trim()).filter(Boolean)
 }
 
 function normaliseHeader(h) {

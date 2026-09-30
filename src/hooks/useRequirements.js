@@ -18,6 +18,12 @@ export function useRequirements(projectId) {
     return req
   }, [projectId])
 
+  const addRequirements = useCallback(async (rows) => {
+    const created = await api.post(`/projects/${projectId}/requirements/bulk`, { rows })
+    setReqs((prev) => [...prev, ...created])
+    return created
+  }, [projectId])
+
   const updateRequirement = useCallback(async (req) => {
     const updated = await api.patch(`/projects/${projectId}/requirements/${req.id}`, req)
     setReqs((prev) => prev.map((r) => (r.id === updated.id ? updated : r)))
@@ -29,5 +35,5 @@ export function useRequirements(projectId) {
     setReqs((prev) => prev.filter((r) => r.id !== id))
   }, [projectId])
 
-  return { requirements, addRequirement, updateRequirement, removeRequirement, refresh }
+  return { requirements, addRequirement, addRequirements, updateRequirement, removeRequirement, refresh }
 }
