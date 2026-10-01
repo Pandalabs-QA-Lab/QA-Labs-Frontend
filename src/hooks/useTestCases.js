@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api } from '../api/client'
+import { api } from '../api/client.js'
 
 // Backend enums are SCREAMING_SNAKE_CASE; the frontend has always used the
 // display-label strings (used directly for status filtering, dropdown

@@ -8,7 +8,8 @@ import { useUser } from '../context/UserContext'
 import { useProjects } from '../hooks/useProjects'
 import { useActivity } from '../hooks/useActivity'
 import { useWorkspaceData } from '../hooks/useWorkspaceData'
-import { getBugs, getTestCases, getTestRuns, getMilestones, getTestPlans } from '../utils/storage'
+import { getBugs, getTestCases, getTestRuns, getMilestones, getTestPlans } from '../utils/workspaceCache'
+import { DataLoadState } from '../components/DataLoadState'
 import { ArrowRightIcon } from '../components/Icons'
 import { getProjectReportMetrics, isOpenBug } from '../utils/reportMetrics'
 import { getMilestoneMetrics } from '../utils/planMetrics'
@@ -27,7 +28,7 @@ function QuickActionIcon({ name }) {
 
 export function DashboardPage() {
   const { user } = useUser()
-  const { projects } = useProjects()
+  const { projects, loading: projectsLoading, error: projectsError, refresh: refreshProjects } = useProjects()
   const { activities: allActivities } = useActivity()
   const navigate = useNavigate()
 
@@ -37,7 +38,7 @@ export function DashboardPage() {
   const [quickActionType, setQuickActionType] = useState('') // 'test-cases' | 'bugs'
   // Warm the cache for every project so the aggregate metrics below are correct
   // even before the user opens each project. Bumps as each project's data lands.
-  const dataVersion = useWorkspaceData(projects)
+  const { version: dataVersion, loading: dataLoading, error: dataError, retry } = useWorkspaceData(projects)
 
   const activities = useMemo(() => {
     return allActivities.slice(0, 5)
@@ -157,6 +158,11 @@ export function DashboardPage() {
   const severityTone = { Critical: 'failed', Major: 'pending', Minor: 'passed' }
 
   // Empty state — no projects at all
+  if (projectsLoading || dataLoading || projectsError || dataError) {
+    return <DataLoadState title={`Good day, ${user}`} loading={projectsLoading || dataLoading}
+      error={projectsError || dataError} onRetry={() => { refreshProjects().catch(() => {}); retry() }} />
+  }
+
   if (projects.length === 0) {
     return (
       <>
