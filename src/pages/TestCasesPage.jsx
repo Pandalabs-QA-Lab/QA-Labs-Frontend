@@ -950,6 +950,7 @@ export function TestCasesPage() {
           projectId={projectId}
           existingTestCases={testCases}
           requirements={requirements}
+          folders={folders}
           onImport={(tc) => addTestCase(tc)}
           onUpdate={(tc) => updateTestCase(tc)}
           onLinkRequirement={updateRequirement}

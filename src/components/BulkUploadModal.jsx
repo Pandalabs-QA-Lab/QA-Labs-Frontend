@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { Modal } from './Modal'
 import { parseTestCaseFile, rowToTestCase, splitRequirementKeys } from '../utils/parseTestCaseFile'
+import { folderPath } from '../hooks/useProjectFolders'
 import { CheckIcon, XIcon, DownloadIcon } from './Icons'
 import { addActivity } from '../utils/activity'
 import { openGooglePicker, downloadDriveFile } from '../utils/googlePicker'
@@ -12,7 +13,7 @@ const ACCEPT = '.xlsx,.xls,.csv'
 const TEMPLATE_HEADERS = [
   'TC ID', 'Module', 'Test Scenario', 'Test Case Title',
   'Pre-conditions', 'Test Steps', 'Test Data',
-  'Expected Result', 'Actual Result', 'Status', 'Dev Remarks', 'QA Remarks', 'Requirement IDs',
+  'Expected Result', 'Actual Result', 'Status', 'Dev Remarks', 'QA Remarks', 'Requirement IDs', 'Folder Path',
 ]
 
 function downloadTemplate() {
@@ -20,7 +21,7 @@ function downloadTemplate() {
     TEMPLATE_HEADERS,
     ['TC_001', 'Login', 'Valid login flow', 'Verify user can login with valid credentials',
      'User is registered', '1. Go to /login\n2. Enter credentials\n3. Click Sign in',
-     'valid@example.com / Pass@123', 'Redirect to dashboard', '', 'Not Executed', '', '', 'REQ-001'],
+     'valid@example.com / Pass@123', 'Redirect to dashboard', '', 'Not Executed', '', '', 'REQ-001', ''],
   ])
   ws['!cols'] = TEMPLATE_HEADERS.map((h) => ({ wch: Math.max(h.length + 4, 18) }))
   const wb = XLSX.utils.book_new()
@@ -59,11 +60,17 @@ function findExistingMatch(data, existingTestCases) {
   return match ? { testCase: match, reason: 'same title and module' } : null
 }
 
-function prepareRows(parsedRows, existingTestCases, requirements) {
+function prepareRows(parsedRows, existingTestCases, requirements, folders) {
   const seen = new Map()
 
   return parsedRows.map((row) => {
     const errors = [...row.errors]
+    const path = normalizeKeyPart(row.data.folder)
+    const matchingFolders = path ? folders.filter((folder) => normalizeKeyPart(folderPath(folders, folder.id)) === path) : []
+    if (matchingFolders.length > 1 || (path.includes('/') && matchingFolders.length === 0)) {
+      errors.push(`Unknown or ambiguous folder path: ${row.data.folder}`)
+    }
+    row = { ...row, folderId: matchingFolders[0]?.id }
     const requirementIds = []
     for (const key of splitRequirementKeys(row.data.requirementKeysRaw)) {
       const matches = requirements.filter((req) => normalizeKeyPart(req.key) === normalizeKeyPart(key))
@@ -188,7 +195,7 @@ function DropZone({ onFile }) {
       {error && <p className="bulk-file-error">{error}</p>}
       <div className="bulk-template-row">
         <p className="bulk-template-hint">
-          Required: <em>Module, Test Case Title, Test Steps, Expected Result</em>. Optional Requirement IDs must match keys already in this project.
+          Required: <em>Module, Test Case Title, Test Steps, Expected Result</em>. Optional Requirement IDs must match keys already in this project. Use Folder Path to select an existing nested folder.
         </p>
         <button className="secondary-button" type="button" onClick={downloadTemplate}>
           <DownloadIcon width={14} height={14} /> Download template
@@ -384,7 +391,7 @@ const IMPORT_TABS = [
   { key: 'google', label: 'URL' },
 ]
 
-export function BulkUploadModal({ existingTestCases = [], requirements = [], onImport, onUpdate, onLinkRequirement, onClose }) {
+export function BulkUploadModal({ existingTestCases = [], requirements = [], folders = [], onImport, onUpdate, onLinkRequirement, onClose }) {
   const { projectId } = useParams()
   const [step, setStep]           = useState(0)   // 0=upload 1=preview 2=done
   const [rows, setRows]           = useState([])
@@ -409,7 +416,7 @@ export function BulkUploadModal({ existingTestCases = [], requirements = [], onI
       setFilename(name)
       setIsMultiSheet(multi || false)
       setSheetNames(sheets || [])
-      setRows(prepareRows(parsed, existingTestCases, requirements))
+      setRows(prepareRows(parsed, existingTestCases, requirements, folders))
       setStep(1)
     } catch (err) {
       console.error('[bulkUpload] Parse failed:', err)
@@ -446,6 +453,7 @@ export function BulkUploadModal({ existingTestCases = [], requirements = [], onI
       const chunk = createRows.slice(start, start + 10)
       const results = await Promise.allSettled(chunk.map((row) => {
         const data = rowToTestCase(row.data)
+        if (row.folderId) data.folderId = row.folderId
         if (row.duplicate) delete data.sourceTcId // A duplicate imported as new needs a fresh ID.
         return onImport(data)
       }))
@@ -465,7 +473,7 @@ export function BulkUploadModal({ existingTestCases = [], requirements = [], onI
         const saved = await onUpdate({
           ...existing,
           folder: incoming.folder || existing.folder || '',
-          folderId: incoming.folder ? undefined : existing.folderId,
+          folderId: incoming.folder ? row.folderId : existing.folderId,
           module: incoming.module || existing.module,
           title: incoming.title,
           scenario: incoming.scenario || existing.scenario,
