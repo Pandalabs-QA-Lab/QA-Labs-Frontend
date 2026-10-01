@@ -616,6 +616,8 @@ select:focus {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .project-bar-info h2 {
@@ -4355,13 +4357,35 @@ button { font-family: inherit; }
 
   .project-bar-metrics {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
     margin-top: 8px;
   }
 
   .bar-metric {
     align-items: flex-start;
+    min-width: 0;
+  }
+
+  .project-bar-info {
+    flex-wrap: wrap;
+  }
+
+  .project-bar-info h2 {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .project-bar-desc {
+    flex-basis: 100%;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .bar-metric-val {
+    max-width: 100%;
   }
 
   .bar-metric-divider {

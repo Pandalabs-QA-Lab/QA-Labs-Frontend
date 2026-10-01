@@ -31,6 +31,8 @@ Start with requirements. Each requirement can have a stable Key such as `REQ-001
 
 Next, create test cases from a requirement's **Create linked test case** action, select linked requirements in the test-case editor, or import test cases with a `Requirement IDs` column. Separate multiple requirement keys with a comma, semicolon, or pipe. The import preview rejects unknown keys. The Coverage Matrix shows the resulting requirement-to-case mapping. For a new project, import requirements first, then cases with `Requirement IDs`; you do not need to re-import the requirements to add their links.
 
+Test-case imports also accept `Folder` or `Folder Path`. An existing path such as `Checkout / Payments` maps to the shared nested folder; unknown nested paths are flagged in preview. A new flat folder name can still be created during import, including through a multi-sheet workbook's sheet names. Separate manual test steps with newlines or semicolons.
+
 ## Configuration
 
 The committed `.env.example` lists all local variables. Keep `.env` out of Git. The Google Drive picker needs an OAuth web client ID, a browser API key, and the numeric Google Cloud project number from the same project. See [Google Drive setup](GOOGLE_DRIVE_SETUP.md) for Cloud Console and deployment steps. Firebase variables are optional for the legacy Firestore sync path; the current account and access flow requires the Express API.

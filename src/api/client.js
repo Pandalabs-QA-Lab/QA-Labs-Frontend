@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api'
+const API_BASE = import.meta.env?.VITE_API_BASE_URL || 'http://localhost:4000/api'
 const TOKEN_KEY = 'qa_jwt'
 
 export function getToken() {
@@ -30,6 +30,10 @@ async function request(path, { method = 'GET', body, isForm = false } = {}) {
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
     throw new Error(err.error || 'Request failed')
+  }
+  if (method !== 'GET') {
+    const match = path.match(/^\/projects\/([^/]+)\/(test-cases|bugs|test-runs)(?:\/|$)/)
+    if (match) window.dispatchEvent(new CustomEvent('qa-project-updated', { detail: { projectId: match[1] } }))
   }
   if (res.status === 204) return null
   return res.json()

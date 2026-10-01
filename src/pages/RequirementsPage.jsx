@@ -404,7 +404,7 @@ export function RequirementsPage() {
         description="Track which features are covered by tests and whether they pass."
         action={isLead &&
           <div className="page-actions-row">
-            <button className="secondary-button" type="button" onClick={() => setShowImport(true)}>Import CSV</button>
+            <button className="secondary-button" type="button" onClick={() => setShowImport(true)}>Import requirements</button>
             {isLead && <button className="primary-button" type="button" onClick={openAdd}>+ Add requirement</button>}
           </div>
         }

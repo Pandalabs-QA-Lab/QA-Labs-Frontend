@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as XLSX from 'xlsx'
 import { parseRequirementFile, rowToRequirement, splitRequirementRefs } from '../src/utils/parseRequirementFile.js'
-import { parseTestCaseFile, splitRequirementKeys } from '../src/utils/parseTestCaseFile.js'
+import { parseTestCaseFile, rowToTestCase, splitRequirementKeys } from '../src/utils/parseTestCaseFile.js'
 
 function workbookBuffer(headers, cells) {
   const sheet = XLSX.utils.aoa_to_sheet([headers, cells])
@@ -45,4 +45,13 @@ test('requirement import accepts a test case ID shown in the app', () => {
     { id: 'a1b2c3d4-1111-4444-8888-000000000001', sourceTcId: null },
   ])
   assert.deepEqual(requirement.testCaseIds, ['a1b2c3d4-1111-4444-8888-000000000001'])
+})
+
+test('CSV test-case import keeps its nested folder path and separate steps', () => {
+  const csv = 'Module,Test Case Title,Test Steps,Expected Result,Folder Path\nCheckout,Card payment,Open checkout;Submit payment,One order,Checkout / Payments'
+  const { rows } = parseTestCaseFile(new TextEncoder().encode(csv), 'cases.csv')
+  const testCase = rowToTestCase(rows[0].data)
+  assert.deepEqual(rows[0].errors, [])
+  assert.equal(testCase.folder, 'Checkout / Payments')
+  assert.deepEqual(testCase.steps, ['Open checkout', 'Submit payment'])
 })

@@ -4,6 +4,8 @@ import { newId } from './id.js'
 // Column aliases — maps spreadsheet header → internal key
 const COL = {
   'tc id':            'sourceTcId',
+  'folder':           'folder',
+  'folder path':      'folder',
   'module':           'module',
   'test scenario':    'scenario',
   'test case title':  'title',

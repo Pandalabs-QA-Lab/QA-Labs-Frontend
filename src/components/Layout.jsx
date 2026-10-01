@@ -354,17 +354,27 @@ function ProjectOverview({ projectId }) {
   const { pathname } = useLocation()
   const { projects } = useProjects()
   const project = projects.find((p) => p.id === projectId)
-  // Actual page components (TestCasesPage, BugTrackerPage, etc.) fetch this
-  // project's data themselves via their own hooks; this bumps a version so
-  // the topbar summary reflects whatever the cache holds once those fetches
-  // land, without duplicating full CRUD hooks here.
   const [, setVersion] = useState(0)
   useEffect(() => {
     if (!projectId) return undefined
     let cancelled = false
-    fetchProjectData(projectId).then(() => { if (!cancelled) setVersion((v) => v + 1) })
-    return () => { cancelled = true }
-  }, [projectId])
+    let timer
+    const refresh = () => fetchProjectData(projectId)
+      .then(() => { if (!cancelled) setVersion((v) => v + 1) })
+      .catch(() => { /* Keep the last summary while the page reports API errors. */ })
+    const onUpdate = (event) => {
+      if (event.detail?.projectId !== projectId) return
+      clearTimeout(timer)
+      timer = setTimeout(refresh, 100)
+    }
+    refresh()
+    window.addEventListener('qa-project-updated', onUpdate)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+      window.removeEventListener('qa-project-updated', onUpdate)
+    }
+  }, [projectId, pathname])
   if (!project) return null
 
   const { testCases, bugs, runs } = getCachedProjectData(projectId)
