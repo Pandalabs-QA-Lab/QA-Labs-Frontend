@@ -9,6 +9,7 @@ import { useProjects } from '../hooks/useProjects'
 import { useTeamMembers } from '../hooks/useTeamMembers'
 import { getCachedProjectData } from '../utils/workspaceCache'
 import { useWorkspaceData } from '../hooks/useWorkspaceData'
+import { DataLoadState } from '../components/DataLoadState'
 import { useUserRole } from '../hooks/useUserRole'
 import { isOpenBug } from '../utils/reportMetrics'
 import { XIcon } from '../components/Icons'
@@ -25,8 +26,8 @@ function Avatar({ name }) {
 const blank = { name: '', description: '', memberIds: [] }
 
 export function ProjectsPage() {
-  const { projects, addProject, removeProject } = useProjects()
-  useWorkspaceData(projects)
+  const { projects, addProject, removeProject, loading: projectsLoading, error: projectsError, refresh } = useProjects()
+  const { version: dataVersion, loading: dataLoading, error: dataError, retry } = useWorkspaceData(projects)
   const { members } = useTeamMembers()
   const { isLead } = useUserRole()
   const confirm = useConfirm()
@@ -54,7 +55,8 @@ export function ProjectsPage() {
       : passRate >= 50 ? 'At risk'
       : 'Critical'
     return { ...project, totalCases: cases.length, openBugs, totalRuns: runs.length, inProgressRuns, passRate, lastRun, projectMembers, healthTone, healthLabel }
-  }), [projects, members])
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- recalculate cached totals when API data arrives
+  }), [projects, members, dataVersion])
 
   const toggleMember = (id) =>
     setForm((f) => ({
@@ -80,6 +82,11 @@ export function ProjectsPage() {
     } finally {
       setSaving(false)
     }
+  }
+
+  if (projectsLoading || dataLoading || projectsError || dataError) {
+    return <DataLoadState title="Projects" loading={projectsLoading || dataLoading}
+      error={projectsError || dataError} onRetry={() => { refresh().catch(() => {}); retry() }} />
   }
 
   return (

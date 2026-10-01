@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api } from '../api/client'
+import { api } from '../api/client.js'
 
 // Backend enums are SCREAMING_SNAKE_CASE; the frontend has always used
 // display-label strings for these fields. Translate on read only - the

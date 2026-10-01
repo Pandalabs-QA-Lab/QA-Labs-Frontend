@@ -4,6 +4,7 @@ import { PageHeader } from '../components/PageHeader'
 import { StatusPill } from '../components/StatusPill'
 import { useProjects } from '../hooks/useProjects'
 import { useWorkspaceData } from '../hooks/useWorkspaceData'
+import { DataLoadState } from '../components/DataLoadState'
 import { getCachedProjectData } from '../utils/workspaceCache'
 import { normalizeTestStatus } from '../utils/status'
 import { getGlobalReportMetrics, isOpenBug } from '../utils/reportMetrics'
@@ -27,11 +28,11 @@ const plural = (count, singular, pluralLabel = `${singular}s`) =>
 const enc = (value) => encodeURIComponent(value)
 
 export function ReportsPage() {
-  const { projects } = useProjects()
+  const { projects, loading: projectsLoading, error: projectsError, refresh } = useProjects()
   const [nowTs] = useState(() => Date.now())
   // Warm the cache for every project so global readiness numbers are correct
   // without first opening each project; re-renders as data lands.
-  useWorkspaceData(projects)
+  const { loading: dataLoading, error: dataError, retry } = useWorkspaceData(projects)
 
   const {
     rows,
@@ -258,6 +259,11 @@ export function ReportsPage() {
   ].filter((s) => s.value > 0)
 
   // Empty state
+  if (projectsLoading || dataLoading || projectsError || dataError) {
+    return <DataLoadState title="Reports" loading={projectsLoading || dataLoading}
+      error={projectsError || dataError} onRetry={() => { refresh().catch(() => {}); retry() }} />
+  }
+
   if (projects.length === 0) {
     return (
       <>

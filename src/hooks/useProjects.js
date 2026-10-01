@@ -6,20 +6,27 @@ const PROJECTS_CHANGED = 'qa-projects-changed'
 export function useProjects() {
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
   const refresh = useCallback(async () => {
     setLoading(true)
-    const data = await api.get('/projects')
-    setProjects(data)
-    setLoading(false)
+    setError('')
+    try {
+      const data = await api.get('/projects')
+      setProjects(data)
+    } catch (err) {
+      setError(err.message || 'Could not load projects')
+      throw err
+    } finally { setLoading(false) }
   }, [])
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch on mount, not a derived-state sync
-  useEffect(() => { refresh() }, [refresh])
+  useEffect(() => { refresh().catch(() => {}) }, [refresh])
 
   useEffect(() => {
-    window.addEventListener(PROJECTS_CHANGED, refresh)
-    return () => window.removeEventListener(PROJECTS_CHANGED, refresh)
+    const onChange = () => refresh().catch(() => {})
+    window.addEventListener(PROJECTS_CHANGED, onChange)
+    return () => window.removeEventListener(PROJECTS_CHANGED, onChange)
   }, [refresh])
 
   const addProject = useCallback(async (data) => {
@@ -48,5 +55,5 @@ export function useProjects() {
     return updated
   }, [])
 
-  return { projects, loading, addProject, removeProject, updateProject, setPublicShare, refresh }
+  return { projects, loading, error, addProject, removeProject, updateProject, setPublicShare, refresh }
 }

@@ -9,6 +9,7 @@ export function AdminPage() {
   const [overview, setOverview] = useState(null)
   const [requests, setRequests] = useState([])
   const [loadingData, setLoadingData] = useState(true)
+  const [loadErrors, setLoadErrors] = useState({})
   const [activeTab, setActiveTab] = useState('overview')
   const [userSearchInput, setUserSearchInput] = useState('')
   const [userSearch, setUserSearch] = useState('')
@@ -38,15 +39,20 @@ export function AdminPage() {
   const refresh = useCallback(async () => {
     setLoadingData(true)
     try {
-      const [summary, pending, users, workspaces] = await Promise.all([
+      const results = await Promise.allSettled([
         api.get('/access/admin/overview'), api.get('/access/admin/requests'),
         api.get(`/access/admin/users?search=${encodeURIComponent(userSearch)}&page=${userPage}`),
         api.get(`/access/admin/workspaces?search=${encodeURIComponent(workspaceSearch)}&page=${workspacePage}`),
       ])
-      setOverview(summary)
-      setRequests(pending)
-      setUsersResult(users)
-      setWorkspacesResult(workspaces)
+      const setters = [setOverview, setRequests, setUsersResult, setWorkspacesResult]
+      const labels = ['Overview', 'Requests', 'Users', 'Workspaces']
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled') setters[index](result.value)
+      })
+      const failures = results.flatMap((result, index) => result.status === 'rejected'
+        ? [`${labels[index]}: ${result.reason?.message === 'Not found' ? 'API unavailable. The backend deployment must be updated.' : result.reason?.message || 'Could not load data.'}`] : [])
+      setError(failures.join(' '))
+      setLoadErrors(Object.fromEntries(results.map((result, index) => [labels[index], result.status === 'rejected'])))
     } finally { setLoadingData(false) }
   }, [userSearch, userPage, workspaceSearch, workspacePage])
 
@@ -249,7 +255,7 @@ export function AdminPage() {
             <input type="search" aria-label="Search workspaces" placeholder="Search workspace name" value={workspaceSearchInput} onChange={(event) => setWorkspaceSearchInput(event.target.value)} />
             <button className="secondary-button" type="submit">Search</button>
           </form>
-          {workspacesResult.items.length === 0 ? <p className="admin-empty">{loadingData ? 'Loading workspaces…' : workspaceSearch ? 'No matching workspaces.' : 'No workspaces yet.'}</p> :
+          {workspacesResult.items.length === 0 ? <p className="admin-empty">{loadingData ? 'Loading workspaces…' : loadErrors.Workspaces ? 'Workspace directory could not be loaded.' : workspaceSearch ? 'No matching workspaces.' : 'No workspaces yet.'}</p> :
             <div className="admin-list">{workspacesResult.items.map((item) => <div className="admin-list-row admin-directory-row" key={item.id}>
               <div><strong>{item.name}</strong><span>{item._count.memberships} {item._count.memberships === 1 ? 'member' : 'members'} · {item._count.projects} {item._count.projects === 1 ? 'project' : 'projects'}</span></div>
               <div className="admin-directory-actions">
@@ -286,7 +292,7 @@ export function AdminPage() {
               <button className="danger-button" type="button" disabled={busyId === removeTarget.userId} onClick={removeMember}>Remove access</button>
             </div>
           </div>}
-          {usersResult.items.length === 0 ? <p className="admin-empty">{loadingData ? 'Loading users…' : userSearch ? 'No matching users.' : 'No users yet.'}</p> :
+          {usersResult.items.length === 0 ? <p className="admin-empty">{loadingData ? 'Loading users…' : loadErrors.Users ? 'User directory could not be loaded.' : userSearch ? 'No matching users.' : 'No users yet.'}</p> :
             <div className="admin-list">{usersResult.items.map((item) => <div className="admin-user" key={item.id}>
               <div className="admin-user-name"><strong>{item.displayName}</strong>{item.isPlatformAdmin && <span className="admin-badge">Platform admin</span>}</div>
               <span className="admin-user-email">{item.email}</span>
