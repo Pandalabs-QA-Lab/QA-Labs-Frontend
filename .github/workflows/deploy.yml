@@ -45,6 +45,8 @@ jobs:
           VITE_GOOGLE_CLOUD_PROJECT_NUMBER: ${{ vars.VITE_GOOGLE_CLOUD_PROJECT_NUMBER }}
 
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
