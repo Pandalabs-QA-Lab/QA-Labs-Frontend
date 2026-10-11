@@ -399,9 +399,11 @@ function ProjectOverview({ projectId }) {
   return (
     <section className="project-overview-bar" aria-label="Project health summary">
       <div className="project-bar-info">
-        <span className={`project-health-badge health-badge--${health.tone}`}>{health.label}</span>
-        <h2>{project.name}</h2>
-        {project.description && <span className="project-bar-desc">— {project.description}</span>}
+        <div className="project-bar-heading">
+          <h2>{project.name}</h2>
+          <span className={`project-health-badge health-badge--${health.tone}`}>{health.label}</span>
+        </div>
+        {project.description && <p className="project-bar-desc">{project.description}</p>}
         <ProjectPresence projectId={projectId} currentPage={currentPage} />
       </div>
       <div className="project-bar-metrics">
@@ -409,20 +411,17 @@ function ProjectOverview({ projectId }) {
           <span className="bar-metric-label">Pass rate</span>
           <strong className="bar-metric-val">{passRate}%</strong>
         </div>
-        <div className="bar-metric-divider" />
         <div className="bar-metric">
           <span className="bar-metric-label">Cases</span>
           <strong className="bar-metric-val">{total}</strong>
         </div>
-        <div className="bar-metric-divider" />
         <div className="bar-metric">
           <span className="bar-metric-label">Open bugs</span>
           <strong className={`bar-metric-val ${openBugs ? 'status-text--failed' : ''}`}>{openBugs}</strong>
         </div>
-        <div className="bar-metric-divider" />
-        <div className="bar-metric">
+        <div className="bar-metric bar-metric--latest">
           <span className="bar-metric-label">Latest run</span>
-          <strong className="bar-metric-val">{latestRun?.name ?? 'None'}</strong>
+          {latestRun ? <Link className="bar-metric-val" to={`/projects/${projectId}/test-runs/${latestRun.id}`}>{latestRun.name}</Link> : <strong className="bar-metric-val">No runs yet</strong>}
         </div>
       </div>
     </section>

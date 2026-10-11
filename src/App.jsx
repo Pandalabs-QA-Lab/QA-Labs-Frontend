@@ -91,7 +91,7 @@ function LeadOnly({ children }) {
 }
 
 function AppShell() {
-  const { authUser, workspace, loading } = useAuth()
+  const { authUser, workspace, loading, sessionError, retrySession, signOut } = useAuth()
   const [hash, setHash] = useState(window.location.hash)
 
   useEffect(() => {
@@ -111,6 +111,20 @@ function AppShell() {
         </Routes>
       </HashRouter>
     )
+  }
+
+  if (sessionError) {
+    return <div className="app-loading">
+      <section className="app-loading-card" aria-label="Session connection error">
+        <div>
+          <strong>Unable to connect to QA Lab</strong>
+          <p className="app-loading-text" role="alert">{sessionError}</p>
+          <p>Your saved session is still here. Retry when the connection is available.</p>
+          <button type="button" className="primary-button" onClick={retrySession}>Retry connection</button>{' '}
+          <button type="button" className="secondary-button" onClick={signOut}>Sign out</button>
+        </div>
+      </section>
+    </div>
   }
 
   if (loading) {
@@ -186,10 +200,10 @@ function AppShell() {
 // (finish or skip) is remembered in localStorage so it never reappears.
 function OnboardingGate() {
   const { role } = useAuth()
-  const { projects, loading } = useProjects()
+  const { projects, loading, error } = useProjects()
   const [dismissed, setDismissed] = useState(() => !!localStorage.getItem('qa_onboarding_dismissed'))
 
-  if (role !== 'QA_LEAD' || dismissed || loading || projects.length > 0) return null
+  if (role !== 'QA_LEAD' || dismissed || loading || error || projects.length > 0) return null
 
   return (
     <OnboardingWizard onComplete={() => {

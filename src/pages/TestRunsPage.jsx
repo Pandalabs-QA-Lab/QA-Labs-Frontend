@@ -107,7 +107,7 @@ export function TestRunsPage() {
   const { isLead, isViewer } = useUserRole()
   const { bugs, addBug, updateBug } = useBugs(projectId)
   const { runs, addRun, refresh } = useTestRuns(projectId)
-  const { plans, linkRunToPlan } = useTestPlans(projectId)
+  const { plans } = useTestPlans(projectId)
   const { requirements } = useRequirements(projectId)
   const { sharedSteps } = useSharedSteps(projectId)
   const project = projects.find((p) => p.id === projectId)
@@ -525,11 +525,8 @@ export function TestRunsPage() {
       completedAt: new Date().toISOString(),
       cases: executed,
       linkedBugIds: allLinkedBugIds,
+      testPlanId: selectedTestPlanId || null,
     })
-
-    if (selectedTestPlanId) {
-      await linkRunToPlan(selectedTestPlanId, run.id)
-    }
 
     await clearRunDraft(projectId)
     setDraftDismissed(true)

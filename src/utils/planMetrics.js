@@ -1,4 +1,5 @@
 /** Metrics for test plans and milestones. */
+import { normalizeTestStatus } from './status.js'
 
 function isRunComplete(run) {
   return Boolean(run?.completedAt)
@@ -6,12 +7,12 @@ function isRunComplete(run) {
 
 /**
  * Compute the deduplicated set of test cases that fall within a plan's scope.
- * Scope is derived by traversing: Plan → requirementIds → requirement.testCaseIds.
+ * Scope combines directly selected cases and cases linked through requirements.
  */
 export function getPlanTestCases(plan, requirements = [], testCases = []) {
   const reqIds = new Set(plan?.requirementIds || [])
   const linkedReqs = requirements.filter((r) => reqIds.has(r.id))
-  const tcIdSet = new Set()
+  const tcIdSet = new Set(plan?.testCaseIds || [])
   linkedReqs.forEach((r) => (r.testCaseIds || []).forEach((id) => tcIdSet.add(id)))
   return testCases.filter((tc) => tcIdSet.has(tc.id))
 }
@@ -40,11 +41,11 @@ export function getPlanMetrics(plan, runs = [], requirements = [], testCases = [
   const latestStatus = {}
   // Process runs oldest-first so newer runs overwrite older statuses
   const chronoRuns = [...linkedRuns].sort(
-    (a, b) => new Date(a.completedAt || a.startedAt || 0) - new Date(b.completedAt || b.startedAt || 0),
+    (a, b) => new Date(a.completedAt || a.date || a.startedAt || a.createdAt || 0) - new Date(b.completedAt || b.date || b.startedAt || b.createdAt || 0),
   )
   chronoRuns.forEach((run) => {
     ;(run.cases || []).forEach((rc) => {
-      if (rc.testCaseId && scopeCaseIds.has(rc.testCaseId)) latestStatus[rc.testCaseId] = rc.status
+      if (rc.testCaseId && scopeCaseIds.has(rc.testCaseId)) latestStatus[rc.testCaseId] = normalizeTestStatus(rc.status)
     })
   })
 
@@ -57,6 +58,7 @@ export function getPlanMetrics(plan, runs = [], requirements = [], testCases = [
 
   const linkedBugIds = new Set()
   linkedRuns.forEach((run) => {
+    ;(run.linkedBugIds || []).forEach((id) => linkedBugIds.add(id))
     ;(run.cases || []).forEach((rc) => { if (rc.bugId) linkedBugIds.add(rc.bugId) })
   })
   const bugCount = bugs.filter((b) => linkedBugIds.has(b.id)).length
@@ -89,7 +91,7 @@ export function getPlanMetrics(plan, runs = [], requirements = [], testCases = [
     scopeBlocked,
     bugCount,
     totalCases: scopeTotal || runTotalCases,
-    passedCases: scopePassed || runPassedCases,
+    passedCases: scopeTotal > 0 ? scopePassed : runPassedCases,
   }
 }
 
@@ -122,12 +124,12 @@ export function getMilestoneMetrics(milestone, plans = [], runs = [], requiremen
   // Latest status per case from all milestone-linked runs
   const latestStatus = {}
   const chronoRuns = [...linkedRuns].sort(
-    (a, b) => new Date(a.completedAt || a.startedAt || 0) - new Date(b.completedAt || b.startedAt || 0),
+    (a, b) => new Date(a.completedAt || a.date || a.startedAt || a.createdAt || 0) - new Date(b.completedAt || b.date || b.startedAt || b.createdAt || 0),
   )
   chronoRuns.forEach((run) => {
     ;(run.cases || []).forEach((rc) => {
       if (rc.testCaseId && allScopeCaseIds.has(rc.testCaseId)) {
-        latestStatus[rc.testCaseId] = rc.status
+        latestStatus[rc.testCaseId] = normalizeTestStatus(rc.status)
       }
     })
   })
@@ -139,6 +141,7 @@ export function getMilestoneMetrics(milestone, plans = [], runs = [], requiremen
 
   const linkedBugIds = new Set()
   linkedRuns.forEach((run) => {
+    ;(run.linkedBugIds || []).forEach((id) => linkedBugIds.add(id))
     ;(run.cases || []).forEach((rc) => { if (rc.bugId) linkedBugIds.add(rc.bugId) })
   })
   const bugCount = bugs.filter((b) => linkedBugIds.has(b.id)).length
@@ -189,7 +192,7 @@ export function getMilestoneMetrics(milestone, plans = [], runs = [], requiremen
     scopeBlocked,
     bugCount,
     totalCases: scopeTotal || runTotalCases,
-    passedCases: scopePassed || runPassedCases,
+    passedCases: scopeTotal > 0 ? scopePassed : runPassedCases,
     daysLeft,
     onTrack,
     overdue: daysLeft !== null && daysLeft < 0 && milestone?.status !== 'Completed',

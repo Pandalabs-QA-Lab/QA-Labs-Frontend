@@ -53,7 +53,7 @@ const blankForm = (overrides = {}) => ({
 export function TestCasesPage() {
   const { projectId } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { testCases, addTestCase, updateTestCase, removeTestCase, removeTestCases, refresh: refreshTestCases } = useTestCases(projectId)
+  const { testCases, addTestCase, updateTestCase, updateTestExecution, removeTestCase, removeTestCases, refresh: refreshTestCases } = useTestCases(projectId)
   const { requirements, updateRequirement } = useRequirements(projectId)
   const { folders, createFolder, updateFolder, deleteFolder } = useProjectFolders(projectId)
   const { addBug } = useBugs(projectId)
@@ -67,6 +67,7 @@ export function TestCasesPage() {
 
   const [showAdd, setShowAdd] = useState(false)
   const [reqSearch, setReqSearch] = useState('')
+  const [foldersOpen, setFoldersOpen] = useState(() => window.innerWidth > 900)
   const [showBulk, setShowBulk] = useState(false)
   const [editTc, setEditTc] = useState(null)   // tc being edited
   const [form, setForm] = useState(blankForm)
@@ -202,12 +203,14 @@ export function TestCasesPage() {
   }
 
   // When a TC status changes to Fail, prompt to log a bug (pre-filled, linked to the TC).
-  const handleTcStatusChange = (tc, newStatus) => {
-    const updated = { ...tc, status: newStatus, updatedAt: new Date().toISOString(), updatedBy: user }
-    const changes = describeTestCaseChanges(tc, updated)
-    updateTestCase(changes.length
-      ? withHistory(updated, historyEntry('update', user, changes.join(', ')))
-      : updated)
+  const handleTcStatusChange = async (tc, newStatus) => {
+    if (isViewer) return
+    try {
+      await updateTestExecution(tc.id, { status: newStatus })
+    } catch (error) {
+      toast.error(error.message || 'Could not update test status')
+      return
+    }
 
     // If changing TO Fail, offer to log a bug.
     if (normalizeTestStatus(newStatus) === 'Fail') {
@@ -484,7 +487,18 @@ export function TestCasesPage() {
       </div>
 
       {activeTab === 'cases' ? (
-        <div className="tc-page-layout">
+        <div className={`tc-page-layout tc-browser${foldersOpen ? ' tc-browser--folders-open' : ''}`}>
+          <div className="tc-browser-heading">
+            <button type="button" className="secondary-button" aria-expanded={foldersOpen} aria-controls="case-folder-browser" onClick={() => setFoldersOpen((open) => !open)}>
+              {foldersOpen ? 'Hide folders' : 'Browse folders'}
+            </button>
+            <div className="tc-browser-location">
+              <span>Project folders</span>
+              <strong>{fFolder === 'unfiled' ? 'Unfiled' : fFolder ? folderPath(folders, fFolder) : 'All test cases'}</strong>
+            </div>
+            <span className="tc-browser-count">{visible.length} {visible.length === 1 ? 'case' : 'cases'}</span>
+          </div>
+          <div id="case-folder-browser" className="tc-browser-folders" hidden={!foldersOpen}>
           <ProjectFolderTree
             folders={folders} items={testCases} selectedId={fFolder}
             onSelect={(id) => { setFFolder(id); setFModule(''); setPage(1) }}
@@ -492,6 +506,7 @@ export function TestCasesPage() {
             createFolder={createFolder} updateFolder={updateFolder} deleteFolder={deleteFolder}
             onChanged={refreshTestCases}
           />
+          </div>
 
         <section className="panel tc-main-panel">
           <div className="toolbar">
@@ -598,9 +613,7 @@ export function TestCasesPage() {
                   <col className="tc-col-check" />
                   <col className="tc-col-id" />
                   <col className="tc-col-title" />
-                  <col className="tc-col-module" />
                   <col className="tc-col-priority" />
-                  <col className="tc-col-assignee" />
                   <col className="tc-col-status" />
                   <col className="tc-col-actions" />
                 </colgroup>
@@ -616,9 +629,7 @@ export function TestCasesPage() {
                     </th>
                     <SortTh col="_tcId" label="ID" active={tcSortKey} dir={tcSortDir} onSort={tcToggle} />
                     <SortTh col="title" label="Title" active={tcSortKey} dir={tcSortDir} onSort={tcToggle} />
-                    <SortTh col="module" label="Module" active={tcSortKey} dir={tcSortDir} onSort={tcToggle} />
                     <SortTh col="priority" label="Priority" active={tcSortKey} dir={tcSortDir} onSort={tcToggle} />
-                    <SortTh col="assignee" label="Assignee" active={tcSortKey} dir={tcSortDir} onSort={tcToggle} />
                     <SortTh col="status" label="Status" active={tcSortKey} dir={tcSortDir} onSort={tcToggle} />
                     <th style={{ textAlign: 'center' }}>Actions</th>
                   </tr>
@@ -639,9 +650,12 @@ export function TestCasesPage() {
                         <Link className="tc-title-link" to={`/projects/${projectId}/test-cases/${tc.id}`}>
                           {tc.title}
                         </Link>
+                        <div className="tc-case-context">
+                          {tc.module && <span title="Module">{tc.module}</span>}
+                          <span title="Assignee">{tc.assignee ? `Assigned to ${tc.assignee}` : 'Unassigned'}</span>
+                        </div>
                         <TagList tags={tc.tags} onTagClick={filterByTag} activeTag={fTag} />
                       </td>
-                      <td>{tc.module || '—'}</td>
                       <td>
                         <select
                           className={`inline-select status-select priority-${(tc.priority || 'Med').toLowerCase()}`}
@@ -656,7 +670,6 @@ export function TestCasesPage() {
                           {PRIORITIES.map((p) => <option key={p}>{p}</option>)}
                         </select>
                       </td>
-                      <td>{tc.assignee || '—'}</td>
                       <td>
                         <select
                           className={`inline-select status-select status-select--${STATUS_TONE[normalizeTestStatus(tc.status)] ?? 'neutral'}`}
@@ -975,18 +988,25 @@ export function TestCasesPage() {
                 {folders.map((folder) => <option key={folder.id} value={folder.id}>{folderPath(folders, folder.id)}</option>)}
               </select>
             </label>
-            <div>
-              <label htmlFor="case-requirement-search">Linked requirements <span className="hint">({form.requirementIds.length} selected)</span></label>
-              <input id="case-requirement-search" type="search" value={reqSearch} onChange={(e) => setReqSearch(e.target.value)} placeholder="Search requirement ID or title…" />
-              <div className="req-tc-picker">
+            <div className="case-requirement-picker">
+              <div className="case-requirement-heading">
+                <label htmlFor="case-requirement-search">Link requirements <span className="hint">(optional)</span></label>
+                <span aria-live="polite">{form.requirementIds.length} selected</span>
+              </div>
+              <p className="case-requirement-help">Choose the requirements this test verifies. You can select more than one.</p>
+              <input id="case-requirement-search" type="search" value={reqSearch} onChange={(e) => setReqSearch(e.target.value)} placeholder="Search by title or requirement key…" />
+              <div className="req-tc-picker" role="group" aria-label="Requirements to link">
                 {requirements.filter((req) => `${req.key || ''} ${req.title}`.toLowerCase().includes(reqSearch.toLowerCase())).map((req) => (
-                  <label key={req.id} className="req-tc-option">
+                  <label key={req.id} className={`req-tc-option${form.requirementIds.includes(req.id) ? ' req-tc-option--selected' : ''}`}>
                     <input type="checkbox" checked={form.requirementIds.includes(req.id)} onChange={() => setForm((before) => ({ ...before, requirementIds: before.requirementIds.includes(req.id) ? before.requirementIds.filter((id) => id !== req.id) : [...before.requirementIds, req.id] }))} />
-                    <span className="mono req-tc-id">{req.key || 'Requirement'}</span>
-                    <span className="req-tc-title">{req.title}</span>
+                    <span className="case-requirement-text">
+                      <span className="mono req-tc-id">{req.key || 'Requirement'}</span>
+                      <span className="req-tc-title">{req.title}</span>
+                    </span>
                   </label>
                 ))}
                 {requirements.length === 0 && <p className="panel-empty-text">Add or import requirements first to link them here.</p>}
+                {requirements.length > 0 && !requirements.some((req) => `${req.key || ''} ${req.title}`.toLowerCase().includes(reqSearch.toLowerCase())) && <p className="panel-empty-text">No matching requirements. Try a different title or key.</p>}
               </div>
             </div>
             <div className="form-row">

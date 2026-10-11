@@ -1,4 +1,4 @@
-import { normalizeTestStatus } from './status'
+import { normalizeTestStatus } from './status.js'
 
 export function normalizeBugStatus(status) {
   if (!status) return 'Open'

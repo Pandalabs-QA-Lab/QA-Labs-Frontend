@@ -7,14 +7,18 @@ export function AuthProvider({ children }) {
   const [authUser, setAuthUser] = useState(undefined)
   const [workspace, setWorkspace] = useState(null)
   const [role, setRole] = useState(null)
+  const [sessionError, setSessionError] = useState('')
+  const [sessionAttempt, setSessionAttempt] = useState(0)
 
   const applySession = useCallback((session) => {
+    setSessionError('')
     setAuthUser(session.user)
     setWorkspace(session.workspace)
     setRole(session.role)
   }, [])
 
   const clearSession = useCallback(() => {
+    setSessionError('')
     setToken(null)
     setAuthUser(null)
     setWorkspace(null)
@@ -23,22 +27,44 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     let cancelled = false
+    const token = getToken()
     if (!getToken()) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- resolving initial auth state on mount, not a derived-state sync
       setAuthUser(null)
       return undefined
     }
     api.get('/auth/me')
-      .then((session) => { if (!cancelled) applySession(session) })
-      .catch(() => { if (!cancelled) clearSession() })
+      .then((session) => { if (!cancelled && getToken() === token) applySession(session) })
+      .catch((error) => {
+        if (cancelled || getToken() !== token) return
+        if (error.status === 401) clearSession()
+        else setSessionError(error.message || 'Could not restore your session. Please try again.')
+      })
     return () => { cancelled = true }
-  }, [applySession, clearSession])
+  }, [applySession, clearSession, sessionAttempt])
 
   useEffect(() => {
     const onExpired = () => clearSession()
     window.addEventListener('qa-auth-expired', onExpired)
     return () => window.removeEventListener('qa-auth-expired', onExpired)
   }, [clearSession])
+
+  // Refresh live permissions when returning to the app or after an admin changes access.
+  useEffect(() => {
+    if (!authUser?.id) return undefined
+    let active = true
+    const refreshAccess = async () => {
+      const token = getToken()
+      if (!token) return
+      try {
+        const session = await api.get('/auth/me')
+        if (active && getToken() === token) applySession(session)
+      } catch { /* Transient network failures do not sign out a valid session. */ }
+    }
+    const timer = setInterval(refreshAccess, 30000)
+    window.addEventListener('focus', refreshAccess)
+    return () => { active = false; clearInterval(timer); window.removeEventListener('focus', refreshAccess) }
+  }, [authUser?.id, applySession])
 
   const login = async (email, password) => {
     let session = await api.post('/auth/login', { email, password })
@@ -89,7 +115,9 @@ export function AuthProvider({ children }) {
       authUser,
       workspace,
       role,
-      loading: authUser === undefined,
+      loading: authUser === undefined && !sessionError,
+      sessionError,
+      retrySession: () => { setSessionError(''); setSessionAttempt(value => value + 1) },
       login,
       register,
       signOut,
