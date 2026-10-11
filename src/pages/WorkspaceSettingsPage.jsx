@@ -10,6 +10,7 @@ import { useActivity } from '../hooks/useActivity'
 import { TrashIcon, CheckIcon, ShieldCheckIcon } from '../components/Icons'
 import { memberMatchesSearch } from '../utils/entitySearch'
 import { InvitationPanel } from '../components/InvitationPanel'
+import { BrowserExtensionSettings } from '../components/BrowserExtensionSettings'
 
 // Inline SVG components for high-quality, modern icons
 const ProfileIcon = (props) => (
@@ -108,7 +109,7 @@ export function WorkspaceSettingsPage() {
   }
 
   // Active tab selection forced to 'profile' for non-leads
-  const currentTab = isLead ? activeTab : 'profile'
+  const currentTab = isLead || activeTab === 'extension' ? activeTab : 'profile'
 
   // Filtered members by search query
   const filteredMembers = members.filter((m) => {
@@ -132,6 +133,9 @@ export function WorkspaceSettingsPage() {
           >
             <ProfileIcon />
             <span>Your Profile</span>
+          </button>
+          <button type="button" className={`settings-nav-btn ${currentTab === 'extension' ? 'settings-nav-btn--active' : ''}`} onClick={() => setActiveTab('extension')}>
+            <ShieldCheckIcon width={16} height={16} /><span>Browser extension</span>
           </button>
           
           {isLead && (
@@ -158,6 +162,7 @@ export function WorkspaceSettingsPage() {
 
         {/* Settings view content area */}
         <div className="settings-view">
+          {currentTab === 'extension' && <BrowserExtensionSettings />}
           {currentTab === 'profile' && (
             <div className="settings-card">
               <div className="settings-card-header">

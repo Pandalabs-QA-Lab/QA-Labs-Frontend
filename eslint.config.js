@@ -6,6 +6,7 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
   globalIgnores(['dist']),
+  { files: ['browser-extension/*.js'], languageOptions: { globals: { ...globals.browser, chrome: 'readonly' } } },
   {
     files: ['**/*.{js,jsx}'],
     extends: [

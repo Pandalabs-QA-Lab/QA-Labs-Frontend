@@ -141,6 +141,10 @@ export function TestRunsPage() {
   const [selectedFilterPlanId, setSelectedFilterPlanId] = useState('')
   const [selectedIds, setSelectedIds] = useState(() => testCases.map((tc) => tc.id))
   const [currentIndex, setCurrentIndex] = useState(0)
+  const [autoAdvance, setAutoAdvance] = useState(false)
+  const [finishing, setFinishing] = useState(false)
+  const [draftSaveFailed, setDraftSaveFailed] = useState(false)
+  const finishingRef = useRef(false)
   const activeCaseRef = useRef(null)
   const [showJunitModal, setShowJunitModal] = useState(false)
 
@@ -468,77 +472,93 @@ export function TestRunsPage() {
     if (!currentCase) return
     const newResult = { ...currentResult, ...patch }
     setResults((prev) => ({ ...prev, [currentCase.id]: newResult }))
-    if ('status' in patch && patch.status !== currentCase.status) {
-      updateTestExecution(currentCase.id, { status: newResult.status })
+    if (autoAdvance && ['Pass', 'Skipped'].includes(patch.status)) {
+      setCurrentIndex((index) => Math.min(selectedCases.length - 1, index + 1))
     }
   }
 
   const finishRun = async () => {
-    const executed = selectedCases.map((tc) => {
-      const result = results[tc.id] ?? { status: tc.status ?? 'Not Executed', actual: tc.actual ?? '' }
-      updateTestExecution(tc.id, { status: result.status, actual: result.actual })
-      return {
-        testCaseId: tc.id,
-        title: tc.title,
-        module: tc.module ?? '',
-        priority: tc.priority ?? '',
-        assignee: tc.assignee ?? '',
-        expected: tc.expected ?? '',
-        status: result.status,
-        actual: result.actual ?? '',
-        bugId: result.bugId ?? '',
-      }
-    })
-
-    const summary = summarizeStatuses(executed)
-    const passRate = summary.total ? Math.round((summary.passed / summary.total) * 100) : 0
-
-    const autoBugIds = []
-    const failedUnlogged = executed.filter(
-      (tc) => (tc.status === 'Fail' || tc.status === 'Blocker') && !loggedBugCaseIds.includes(tc.testCaseId),
-    )
-    for (const tc of failedUnlogged) {
-      const bug = await addBug({
-        title: `${tc.title} failed during test run`,
-        description: tc.actual ? `Actual result: ${tc.actual}` : '',
-        severity: tc.status === 'Blocker' ? 'Critical' : 'Major',
-        status: 'Open',
-        linkedTestCase: tc.testCaseId,
-        linkedRequirementId: linkedRequirementId || '',
-        module: tc.module || '',
-        priority: tc.priority || '',
-        history: [historyEntry('created', user, 'Auto-created from failed test run execution')],
+    if (finishingRef.current) return
+    finishingRef.current = true
+    setFinishing(true)
+    try {
+      if (completedCount < selectedCases.length && !await confirm({
+        title: 'Finish with unexecuted cases?',
+        message: `${selectedCases.length - completedCount} case(s) have not been executed. You can continue testing or save this run now.`,
+        confirmLabel: 'Save run',
+      })) return
+      const executed = selectedCases.map((tc) => {
+        const result = results[tc.id] ?? { status: tc.status ?? 'Not Executed', actual: tc.actual ?? '' }
+        return {
+          testCaseId: tc.id,
+          title: tc.title,
+          module: tc.module ?? '',
+          priority: tc.priority ?? '',
+          assignee: tc.assignee ?? '',
+          expected: tc.expected ?? '',
+          status: result.status,
+          actual: result.actual ?? '',
+          bugId: result.bugId ?? '',
+        }
       })
-      autoBugIds.push(bug.id)
-      const idx = executed.findIndex(item => item.testCaseId === tc.testCaseId)
-      if (idx >= 0) {
-        executed[idx].bugId = bug.id
+      await Promise.all(executed.map((tc) => updateTestExecution(tc.testCaseId, { status: tc.status, actual: tc.actual })))
+
+      const summary = summarizeStatuses(executed)
+      const passRate = summary.total ? Math.round((summary.passed / summary.total) * 100) : 0
+
+      const autoBugIds = []
+      const failedUnlogged = executed.filter(
+        (tc) => (tc.status === 'Fail' || tc.status === 'Blocker') && !tc.bugId && !loggedBugCaseIds.includes(tc.testCaseId),
+      )
+      for (const tc of failedUnlogged) {
+        const bug = await addBug({
+          title: `${tc.title} failed during test run`,
+          description: tc.actual ? `Actual result: ${tc.actual}` : '',
+          expected: tc.expected,
+          actual: tc.actual,
+          severity: tc.status === 'Blocker' ? 'Critical' : 'Major',
+          status: 'Open',
+          linkedTestCase: tc.testCaseId,
+          linkedRequirementId: linkedRequirementId || '',
+          module: tc.module || '',
+          priority: tc.priority || '',
+          history: [historyEntry('created', user, 'Auto-created from failed test run execution')],
+        })
+        autoBugIds.push(bug.id)
+        setResults((previous) => ({ ...previous, [tc.testCaseId]: { ...previous[tc.testCaseId], status: tc.status, actual: tc.actual, bugId: bug.id } }))
+        setLoggedBugCaseIds((ids) => [...ids, tc.testCaseId])
+        setLoggedBugIds((ids) => [...ids, bug.id])
+        const idx = executed.findIndex(item => item.testCaseId === tc.testCaseId)
+        if (idx >= 0) {
+          executed[idx].bugId = bug.id
+        }
       }
-    }
 
-    const allLinkedBugIds = [...loggedBugIds, ...autoBugIds]
+      const allLinkedBugIds = [...new Set([...loggedBugIds, ...autoBugIds, ...executed.map((tc) => tc.bugId).filter(Boolean)])]
 
-    const runNameText = runName.trim() || suggestedRunName || `${project?.name ?? 'Project'} run`
-    const run = await addRun({
-      name: runNameText,
-      build: build.trim() || '',
-      completedAt: new Date().toISOString(),
-      cases: executed,
-      linkedBugIds: allLinkedBugIds,
-      testPlanId: selectedTestPlanId || null,
-    })
+      const runNameText = runName.trim() || suggestedRunName || `${project?.name ?? 'Project'} run`
+      const run = await addRun({
+        name: runNameText,
+        build: build.trim() || '',
+        completedAt: new Date().toISOString(),
+        cases: executed,
+        linkedBugIds: allLinkedBugIds,
+        testPlanId: selectedTestPlanId || null,
+      })
 
-    await clearRunDraft(projectId)
-    setDraftDismissed(true)
+      await clearRunDraft(projectId).catch(() => toast.warning('Run saved, but the draft could not be cleared.'))
+      setDraftDismissed(true)
 
-    setSavedRun({ ...run, passRate, failureModules: failingModules(executed) })
-    setMode('complete')
+      setSavedRun({ ...run, passRate, failureModules: failingModules(executed) })
+      setMode('complete')
 
-    if (autoBugIds.length > 0) {
-      toast.info(`Run saved. ${autoBugIds.length} bug${autoBugIds.length !== 1 ? 's' : ''} auto-logged for failed cases.`)
-    } else {
-      toast.success('Run saved successfully.')
-    }
+      if (autoBugIds.length > 0) {
+        toast.info(`Run saved. ${autoBugIds.length} bug${autoBugIds.length !== 1 ? 's' : ''} auto-logged for failed cases.`)
+      } else {
+        toast.success('Run saved successfully.')
+      }
+    } catch (err) { toast.error(`Run could not be saved: ${err.message}. Your progress is still available.`) }
+    finally { finishingRef.current = false; setFinishing(false) }
   }
 
   const openRunBug = () => {
@@ -639,15 +659,15 @@ export function TestRunsPage() {
       loggedBugIds,
       startedAt,
     }
-    saveRunDraft(projectId, draftData)
-  }, [mode, projectId, currentDraftId, runName, build, selectedTestPlanId, linkedRequirementId, selectedIds, currentIndex, results, bugsLogged, loggedBugCaseIds, loggedBugIds, startedAt])
+    if (!finishing) saveRunDraft(projectId, draftData).then((saved) => setDraftSaveFailed(!saved))
+  }, [mode, projectId, currentDraftId, runName, build, selectedTestPlanId, linkedRequirementId, selectedIds, currentIndex, results, bugsLogged, loggedBugCaseIds, loggedBugIds, startedAt, finishing])
 
   // ── Keyboard shortcuts during execution ────────────────────────────────────
   useEffect(() => {
-    if (mode !== 'execute' || bugForm) return
+    if (mode !== 'execute' || bugForm || finishing) return
     const handler = (event) => {
       const target = event.target
-      if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.tagName === 'SELECT') return
+      if (event.ctrlKey || event.metaKey || event.altKey || event.repeat || target?.isContentEditable || target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.tagName === 'SELECT') return
       const setShortcutStatus = (status) => {
         if (!currentCase) return
         setResults((prev) => ({
@@ -657,8 +677,8 @@ export function TestRunsPage() {
             status,
           },
         }))
-        if (status !== currentCase.status) {
-          updateTestExecution(currentCase.id, { status })
+        if (autoAdvance && ['Pass', 'Skipped'].includes(status)) {
+          setCurrentIndex((index) => Math.min(selectedCases.length - 1, index + 1))
         }
       }
       if (event.key === 'p' || event.key === 'P') setShortcutStatus('Pass')
@@ -674,7 +694,7 @@ export function TestRunsPage() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [bugForm, currentCase, mode, selectedCases.length, updateTestExecution])
+  }, [bugForm, currentCase, mode, selectedCases.length, autoAdvance, finishing])
 
   // Derive a human-readable draft age string for the banner
   const draftAge = activeDraft?.startedAt
@@ -1039,6 +1059,12 @@ export function TestRunsPage() {
       {mode === 'execute' && currentCase && (
         <div className="run-execution-layout">
           <section className="panel run-case-panel">
+            <div className="run-work-toolbar">
+              <label><input type="checkbox" checked={autoAdvance} disabled={finishing} onChange={(event) => setAutoAdvance(event.target.checked)} />Next case after Pass or Skip</label>
+              <button type="button" className="primary-button" disabled={finishing} onClick={finishRun}>{finishing ? 'Saving run…' : 'Save & finish run'}</button>
+            </div>
+            {draftSaveFailed && <p role="alert" className="auth-error">Progress could not be saved. Keep this page open and check your connection before leaving.</p>}
+            <fieldset className="run-work-fields" disabled={finishing} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
             <div className="run-progress-row">
               <span>Case {currentIndex + 1} of {selectedCases.length}</span>
               <strong>{progressPercent}% executed</strong>
@@ -1177,14 +1203,15 @@ export function TestRunsPage() {
                   Next case
                 </button>
               ) : (
-                <button className="primary-button" type="button" onClick={finishRun}>
+                <button className="primary-button" type="button" disabled={finishing} onClick={finishRun}>
                   Finish run
                 </button>
               )}
             </div>
+            </fieldset>
           </section>
 
-          <aside className="panel run-side-panel">
+          <aside className="panel run-side-panel" inert={finishing ? true : undefined}>
             <div className="run-side-header">
               <h2>Live summary</h2>
               <button className="run-jump-btn" type="button" onClick={jumpToNextPending} title="Jump to next unexecuted case">

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>QA Lab · Report a bug</title><link rel="stylesheet" href="report.css"></head>
+<body><main>
+  <header><span class="brand">QA Lab</span><h1>Capture a bug</h1><p>Review the evidence, hide private information, and send it to your team.</p></header>
+  <p id="status" role="status" aria-live="polite"></p>
+  <details id="connection" open><summary>Connect to QA Lab</summary>
+    <form id="login"><div class="grid">
+      <label>QA Lab website URL<input id="appUrl" type="url" value="https://qa-labs-seven.vercel.app/" required></label>
+      <label>QA Lab API URL<input id="apiUrl" type="url" value="https://git-pipeline.metatronhost.in/qa-labs/api" required></label>
+      <label>Email<input id="email" type="email" autocomplete="username" required></label>
+      <label>Password<input id="password" type="password" autocomplete="current-password" required></label>
+    </div><p>Use your normal QA Lab account. Only Tester and QA Lead workspaces can report bugs.</p><button type="submit">Connect & sign in</button> <button id="signout" type="button" class="secondary">Sign out</button></form>
+  </details>
+  <form id="report"><fieldset id="fields" disabled>
+    <section><h2>1. Choose where this belongs</h2><div class="grid">
+      <label>Workspace<select id="workspace" required><option value="">Choose a workspace</option></select></label>
+      <label>Project<select id="project" required><option value="">Choose a project</option></select></label>
+      <label>Test case (optional)<select id="testCase"><option value="">No linked test case</option></select></label>
+      <label>Severity<select id="severity"><option>Minor</option><option selected>Major</option><option>Critical</option></select></label>
+    </div></section>
+    <section><h2>2. Describe the problem</h2>
+      <label>Title<input id="title" required maxlength="240" placeholder="Checkout does not show a payment error"></label>
+      <label>Steps to reproduce<textarea id="steps" rows="3" placeholder="1. Open checkout&#10;2. Submit a declined card"></textarea></label>
+      <div class="grid"><label>Expected result<textarea id="expected" rows="3"></textarea></label><label>Actual result<textarea id="actual" rows="3"></textarea></label></div>
+      <label>Build / version (optional)<input id="build" maxlength="120"></label>
+    </section>
+    <section><h2>3. Review captured evidence</h2>
+      <label>Page URL<input id="pageUrl" type="url" required></label>
+      <p>URL query parameters and fragments are removed by default. Review the remaining path and screenshot for private information.</p>
+      <label>Environment<textarea id="environment" rows="4"></textarea></label>
+      <div class="tools"><label><input id="includeScreenshot" type="checkbox" checked> Include screenshot</label><button type="button" id="highlight" class="secondary">Highlight area</button><button type="button" id="redact" class="secondary">Hide private area</button><button type="button" id="undo" class="secondary">Undo</button></div>
+      <p>Choose a tool, then drag over the screenshot. Hidden areas are filled with solid black before upload.</p>
+      <canvas id="canvas" aria-label="Screenshot editor"></canvas>
+      <label class="review"><input id="reviewed" type="checkbox" required> I reviewed the details and screenshot and want to share them with this project.</label>
+    </section>
+    <button id="submit" type="submit">Submit bug</button><a id="openBug" hidden target="_blank" rel="noopener">Open bug in QA Lab →</a>
+  </fieldset></form>
+  <footer>This version captures only the visible screenshot and page details when you click the extension. No console logs, network traffic, cookies, or background browsing history are collected.</footer>
+</main><script type="module" src="report.js"></script></body></html>

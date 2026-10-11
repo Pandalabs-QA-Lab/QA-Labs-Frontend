@@ -4,10 +4,8 @@ import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Layout } from './components/Layout'
 import { WorkspaceGate } from './components/WorkspaceGate'
-import { OnboardingWizard } from './components/OnboardingWizard'
 import { AuthProvider } from './context/AuthContext'
 import { useAuth } from './context/useAuth'
-import { useProjects } from './hooks/useProjects'
 import { ConfirmProvider } from './context/ConfirmContext'
 import { ToastProvider } from './context/ToastContext'
 import { AuthPage } from './pages/AuthPage'
@@ -190,28 +188,10 @@ function AppShell() {
           </Layout>
         </ErrorBoundary>
       </HashRouter>
-      <OnboardingGate />
     </WorkspaceGate>
   )
 }
 
-
-// Shown once for a brand-new workspace with no projects yet; dismissing it
-// (finish or skip) is remembered in localStorage so it never reappears.
-function OnboardingGate() {
-  const { role } = useAuth()
-  const { projects, loading, error } = useProjects()
-  const [dismissed, setDismissed] = useState(() => !!localStorage.getItem('qa_onboarding_dismissed'))
-
-  if (role !== 'QA_LEAD' || dismissed || loading || error || projects.length > 0) return null
-
-  return (
-    <OnboardingWizard onComplete={() => {
-      setDismissed(true)
-      localStorage.setItem('qa_onboarding_dismissed', '1')
-    }} />
-  )
-}
 
 export function App() {
   return (

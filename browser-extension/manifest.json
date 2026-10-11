@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "QA Lab Bug Capture",
+  "version": "0.1.0",
+  "description": "Capture, redact and report a bug to your QA Lab project.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+  "action": { "default_title": "Capture bug in QA Lab" },
+  "background": { "service_worker": "capture.js", "type": "module" }
+}

@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { newId } from '../utils/id'
 import { openGooglePicker } from '../utils/googlePicker'
+import { EvidenceLink } from './EvidenceLink'
+import { ScreenshotPreview } from './ScreenshotPreview'
 
 function isValidGoogleDriveUrl(url) {
   const trimmed = (url || '').trim()
@@ -30,6 +32,7 @@ export function EvidenceLinksField({ evidenceLinks = [], onChange, currentUser, 
   const [url, setUrl] = useState('')
   const [label, setLabel] = useState('')
   const [error, setError] = useState('')
+  const [previewImageId, setPreviewImageId] = useState(null)
 
   const handleGooglePicker = () => {
     setError('')
@@ -106,22 +109,20 @@ export function EvidenceLinksField({ evidenceLinks = [], onChange, currentUser, 
                 </span>
                 <div className="attachment-info">
                   {link.url ? (
-                    <a
-                      href={link.url}
-                      target="_blank"
-                      rel="noreferrer"
+                    <EvidenceLink
+                      link={link}
                       className="attachment-name"
                       style={{ textDecoration: 'underline', color: 'var(--primary-color, #1a73e8)' }}
                     >
                       {link.label}
-                    </a>
+                    </EvidenceLink>
                   ) : (
                     <span className="attachment-name" style={{ color: 'var(--text-muted, #5f6368)' }}>
                       {link.label}
                     </span>
                   )}
                   <span className="attachment-size">
-                    {link.url ? new URL(link.url).hostname : 'No Link'}
+                    {link.attachmentId ? 'QA Lab attachment' : link.url ? new URL(link.url, window.location.origin).hostname : 'No Link'}
                     {link.addedBy && ` • Added by ${link.addedBy}`}
                     {link.addedAt && ` on ${new Date(link.addedAt).toLocaleDateString()}`}
                   </span>
@@ -136,7 +137,9 @@ export function EvidenceLinksField({ evidenceLinks = [], onChange, currentUser, 
                     ×
                   </button>
                 )}
+                {link.attachmentId && <button type="button" className="secondary-button" aria-expanded={previewImageId === link.attachmentId} onClick={() => setPreviewImageId(previewImageId === link.attachmentId ? null : link.attachmentId)}>{previewImageId === link.attachmentId ? 'Hide image' : 'Preview image'}</button>}
               </div>
+              {link.attachmentId && previewImageId === link.attachmentId && <ScreenshotPreview link={link} />}
             </div>
           ))}
         </div>
