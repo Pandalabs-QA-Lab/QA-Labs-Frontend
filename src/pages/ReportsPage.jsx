@@ -8,6 +8,7 @@ import { DataLoadState } from '../components/DataLoadState'
 import { getCachedProjectData } from '../utils/workspaceCache'
 import { normalizeTestStatus } from '../utils/status'
 import { getGlobalReportMetrics, isOpenBug } from '../utils/reportMetrics'
+import './ReportAttention.css'
 
 const getTestCases = (projectId) => getCachedProjectData(projectId).testCases
 const getBugs = (projectId) => getCachedProjectData(projectId).bugs
@@ -50,7 +51,6 @@ export function ReportsPage() {
   const firstBlockerProject = firstProjectWith((r) => r.blocker > 0)
   const firstFailedProject = firstProjectWith((r) => r.failed > 0)
   const firstPendingProject = firstProjectWith((r) => r.pending > 0)
-  const firstStaleProject = firstProjectWith((r) => r.total > 0 && r.noRecentRun)
   const firstPassedProject = firstProjectWith((r) => r.passed > 0)
 
   const bugSeverityLink = (severity) => {
@@ -223,24 +223,30 @@ export function ReportsPage() {
 
   // ── What needs attention (max 5) ───────────────────────────────────────
   const attentionItems = []
+  const addAttention = (tone, count, text, action, countForProject, path) => {
+    const affectedProjects = rows
+      .map((r) => ({ id: r.id, name: r.name, count: countForProject(r), to: `/projects/${r.id}/${path}` }))
+      .filter((r) => r.count > 0)
+    attentionItems.push({ tone, count, text, action, affectedProjects })
+  }
   if (totals.blocker > 0) {
-    attentionItems.push({ tone: 'failed', text: `${plural(totals.blocker, 'blocker case')} blocking release`, to: firstBlockerProject ? `/projects/${firstBlockerProject}/test-cases?status=Blocker` : null })
+    addAttention('failed', totals.blocker, 'Release blockers', 'Review cases', (r) => r.blocker, 'test-cases?status=Blocker')
   }
   if (totals.critical > 0) {
-    attentionItems.push({ tone: 'failed', text: `${plural(totals.critical, 'critical bug')} open`, to: bugSeverityLink('Critical') })
+    addAttention('failed', totals.critical, 'Critical bugs open', 'Review bugs', (r) => r.critical, 'bugs?severity=Critical')
   }
   if (totals.openBugs - totals.critical > 0) {
     const rest = totals.openBugs - totals.critical
-    attentionItems.push({ tone: 'pending', text: `${plural(rest, 'other open bug')} ${rest === 1 ? 'needs' : 'need'} triage`, to: firstOpenBugProject ? `/projects/${firstOpenBugProject}/bugs?status=Open` : null })
+    addAttention('pending', rest, 'Other bugs awaiting triage', 'Triage bugs', (r) => r.openBugs - r.critical, 'bugs')
   }
   if (totals.failed > 0) {
-    attentionItems.push({ tone: 'pending', text: `${plural(totals.failed, 'failing case')} ${totals.failed === 1 ? 'needs' : 'need'} attention`, to: firstFailedProject ? `/projects/${firstFailedProject}/test-cases?status=Fail` : null })
+    addAttention('pending', totals.failed, 'Failing test cases', 'Review failures', (r) => r.failed, 'test-cases?status=Fail')
   }
   if (staleCount > 0 && attentionItems.length < 5) {
-    attentionItems.push({ tone: 'neutral', text: `${plural(staleCount, 'project')} ${staleCount === 1 ? 'has' : 'have'} no run in ${STALE_DAYS}+ days`, to: firstStaleProject ? `/projects/${firstStaleProject}/test-runs` : null })
+    addAttention('neutral', staleCount, `Projects with no run in ${STALE_DAYS}+ days`, 'Review projects', (r) => Number(r.total > 0 && r.noRecentRun), 'test-runs')
   }
   if (totals.pending > 0 && attentionItems.length < 5) {
-    attentionItems.push({ tone: 'neutral', text: `${plural(totals.pending, 'case')} still pending execution`, to: firstPendingProject ? `/projects/${firstPendingProject}/test-cases?status=${enc('Not Executed')}` : null })
+    addAttention('neutral', totals.pending, 'Cases pending execution', 'Review cases', (r) => r.pending, `test-cases?status=${enc('Not Executed')}`)
   }
   if (attentionItems.length === 0 && totals.total > 0) {
     attentionItems.push({ tone: 'passed', text: 'No blockers, no failing cases, no open bugs' })
@@ -386,17 +392,30 @@ export function ReportsPage() {
 
       {/* ── 3. What needs attention ────────────────────────────────────── */}
       {attentionItems.length > 0 && (
-        <section className="rr-section">
-          <h2 className="rr-section-title">What needs attention</h2>
+        <section className="rr-section report-attention" aria-labelledby="report-attention-heading">
+          <h2 className="rr-section-title" id="report-attention-heading">What needs attention</h2>
           <div className="rr-attention-list">
-            {attentionItems.map((item, i) => {
-              const AttentionTag = item.to ? Link : 'div'
-              return (
-              <AttentionTag key={i} className={`rr-attention-item rr-attention-item--${item.tone} rr-clickable-row`} {...(item.to ? { to: item.to } : {})}>
-                <span className={`rr-attention-dot rr-attention-dot--${item.tone}`} />
-                <span className="rr-attention-text">{item.text}</span>
-              </AttentionTag>
-            )})}
+            {attentionItems.map((item, i) => (
+              <div key={i} className={`rr-attention-item rr-attention-item--${item.tone}`}>
+                <div className="report-attention-main">
+                  <span className={`rr-attention-dot rr-attention-dot--${item.tone}`} aria-hidden="true" />
+                  {item.count != null && <strong className="report-attention-count">{item.count}</strong>}
+                  <span className="rr-attention-text">{item.text}</span>
+                </div>
+                {item.affectedProjects?.length > 0 && (
+                  <details className="report-attention-projects">
+                    <summary>{item.action} <span aria-hidden="true">→</span></summary>
+                    <ul aria-label={`Affected projects: ${item.text}`}>
+                      {item.affectedProjects.map((project) => (
+                        <li key={project.id}>
+                          <Link to={project.to}><span>{project.name}</span><span>{project.count} {item.text.startsWith('Projects') ? 'project' : 'affected'}</span></Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            ))}
           </div>
         </section>
       )}

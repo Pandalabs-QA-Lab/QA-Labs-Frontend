@@ -1,0 +1,52 @@
+.report-attention .rr-attention-list { gap: 0; padding: 0 16px; }
+.report-attention .rr-attention-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 38%);
+  align-items: baseline;
+  gap: 20px;
+  padding: 15px 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-strong);
+}
+.report-attention .rr-attention-item:last-child { border-bottom: 0; }
+.report-attention-main { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.report-attention .rr-attention-dot { align-self: center; width: 8px; height: 8px; }
+.report-attention-count { min-width: 28px; font-size: 20px; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.report-attention .rr-attention-text { font-size: 14px; line-height: 1.5; }
+.report-attention-projects summary {
+  width: fit-content;
+  margin-left: auto;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 4px;
+}
+.report-attention-projects summary:hover { color: var(--text-strong); }
+.report-attention-projects summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.report-attention-projects ul { list-style: none; padding: 8px 0 0; margin: 0; }
+.content .report-attention-projects li a {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 9px 10px;
+  border-radius: 6px;
+  background: var(--soft-bg);
+  color: var(--text-strong);
+  font-size: 12px;
+  text-decoration: none;
+  margin-top: 4px;
+}
+.report-attention-projects li a span:first-child { overflow-wrap: anywhere; }
+.report-attention-projects li a span:last-child { flex-shrink: 0; color: var(--text-muted); }
+.content .report-attention-projects li a:hover { background: var(--border); }
+@media (max-width: 640px) {
+  .report-attention .rr-attention-item { grid-template-columns: 1fr; gap: 9px; }
+  .report-attention-projects { margin-left: 20px; }
+  .report-attention-projects summary { margin-left: 0; }
+}
+@media print {
+  .report-attention .rr-attention-item { grid-template-columns: 1fr; }
+  .report-attention-projects { display: none; }
+}

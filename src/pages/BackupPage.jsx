@@ -17,6 +17,11 @@ function SummaryGrid({ summary }) {
       <article><span>Test cases</span><strong>{summary.testCases}</strong></article>
       <article><span>Bugs</span><strong>{summary.bugs}</strong></article>
       <article><span>Runs</span><strong>{summary.runs}</strong></article>
+      <article><span>Requirements</span><strong>{summary.requirements}</strong></article>
+      <article><span>Test plans</span><strong>{summary.testPlans}</strong></article>
+      <article><span>Milestones</span><strong>{summary.milestones}</strong></article>
+      <article><span>Folders</span><strong>{summary.folders}</strong></article>
+      <article><span>Shared steps</span><strong>{summary.sharedSteps}</strong></article>
       <article><span>Members</span><strong>{summary.teamMembers}</strong></article>
     </div>
   )
@@ -31,14 +36,16 @@ export function BackupPage() {
   const [error, setError] = useState('')
   const [mode, setMode] = useState('merge')
   const [restoring, setRestoring] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const importSummary = parsed ? summarizeBackup(parsed) : null
 
   useEffect(() => {
-    fetchWorkspaceBackup().then((backup) => setCurrentSummary(summarizeBackup(backup)))
+    fetchWorkspaceBackup().then((backup) => setCurrentSummary(summarizeBackup(backup))).catch((err) => setError(err.message || 'Could not load workspace summary.'))
   }, [])
 
   const readFile = (file) => {
     setError('')
+    setParsed(null)
     if (!file) return
     const reader = new FileReader()
     reader.onload = () => {
@@ -54,9 +61,13 @@ export function BackupPage() {
   }
 
   const handleExport = async () => {
-    const backup = await fetchWorkspaceBackup()
-    downloadBackup(backup)
-    toast.success('Backup downloaded.')
+    setExporting(true)
+    try {
+      const backup = await fetchWorkspaceBackup()
+      downloadBackup(backup)
+      toast.success('Backup downloaded.')
+    } catch (err) { toast.error(err.message || 'Could not export workspace.') }
+    finally { setExporting(false) }
   }
 
   const doRestore = async () => {
@@ -88,8 +99,8 @@ export function BackupPage() {
         title="Backup"
         description="Export or restore your QA Lab workspace."
         action={
-          <button className="primary-button" type="button" onClick={handleExport}>
-            Export JSON
+          <button className="primary-button" type="button" onClick={handleExport} disabled={exporting || restoring}>
+            {exporting ? 'Exporting…' : 'Export JSON'}
           </button>
         }
       />
@@ -101,8 +112,10 @@ export function BackupPage() {
           </div>
           {currentSummary && <SummaryGrid summary={currentSummary} />}
           <p className="backup-note">
-            Export creates one JSON file containing projects, test cases, bugs, test runs, and team members.
+            Export includes projects, folders, requirements, test cases, plans, milestones, shared steps, saved runs, bugs, history, and evidence URLs.
           </p>
+          <p className="backup-note">Uploaded attachment files, comments, unfinished run drafts, and workspace activity are not included. Keep a separate copy of uploaded files.</p>
+          <p className="backup-note">Restored records receive new IDs. Member directory entries are included; accounts, passwords, invitations, project access, and public sharing links are not restored.</p>
         </article>
 
         <article className="panel backup-panel">

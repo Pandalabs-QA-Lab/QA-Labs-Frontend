@@ -39,7 +39,10 @@ The committed `.env.example` lists all local variables. Keep `.env` out of Git. 
 
 ## Checks and deployment
 
+Initial session restoration keeps the saved login token when the API is unreachable or temporarily unavailable. The connection screen offers a retry; an HTTP 401 still clears the session. API reads have a 20-second deadline, while writes and uploads have a 120-second deadline. Timed-out writes are not retried automatically because the server may already have saved them.
+
 ```powershell
+npm test
 npm run lint
 npm run build
 ```

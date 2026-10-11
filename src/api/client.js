@@ -10,37 +10,53 @@ export function setToken(token) {
   else localStorage.removeItem(TOKEN_KEY)
 }
 
-async function request(path, { method = 'GET', body, isForm = false } = {}) {
+async function request(path, { method = 'GET', body, isForm = false, timeoutMs = method === 'GET' ? 20000 : 120000 } = {}) {
   const headers = {}
   const token = getToken()
   if (token) headers.Authorization = `Bearer ${token}`
   if (!isForm && body !== undefined) headers['Content-Type'] = 'application/json'
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers,
-    body: isForm ? body : body !== undefined ? JSON.stringify(body) : undefined,
-  })
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  let res
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method, headers, signal: controller.signal,
+      body: isForm ? body : body !== undefined ? JSON.stringify(body) : undefined,
+    })
+    // Read the body within the deadline as well as the response headers.
+    const text = res.status === 204 ? '' : await res.text()
+    res = { status: res.status, ok: res.ok, statusText: res.statusText, text }
+  } catch (cause) {
+    throw new Error(controller.signal.aborted
+      ? 'The server took too long to respond. Please try again.'
+      : 'Cannot connect to QA Lab. Check your connection and try again.', { cause })
+  } finally { clearTimeout(timer) }
 
-  if (res.status === 401) {
+  if (res.status === 401 && getToken() === token) {
     setToken(null)
     window.dispatchEvent(new Event('qa-auth-expired'))
   }
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(err.error || 'Request failed')
+    let err
+    try { err = JSON.parse(res.text) } catch { err = {} }
+    const error = new Error(err?.error || (res.status >= 500 ? 'QA Lab is temporarily unavailable. Please try again.' : res.statusText || 'Request failed'))
+    error.status = res.status
+    throw error
   }
   if (method !== 'GET') {
     const match = path.match(/^\/projects\/([^/]+)\/(test-cases|bugs|test-runs)(?:\/|$)/)
     if (match) window.dispatchEvent(new CustomEvent('qa-project-updated', { detail: { projectId: match[1] } }))
   }
   if (res.status === 204) return null
-  return res.json()
+  try { return JSON.parse(res.text) } catch {
+    throw new Error('QA Lab returned an unexpected response. Please try again.')
+  }
 }
 
 export const api = {
-  get: (path) => request(path),
+  get: (path, options) => request(path, options),
   post: (path, body) => request(path, { method: 'POST', body }),
   put: (path, body) => request(path, { method: 'PUT', body }),
   patch: (path, body) => request(path, { method: 'PATCH', body }),

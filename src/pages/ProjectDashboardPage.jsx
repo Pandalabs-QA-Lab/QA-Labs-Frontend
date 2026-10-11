@@ -13,6 +13,7 @@ import { normalizeTestStatus } from '../utils/status'
 import { isOpenBug } from '../utils/reportMetrics'
 import { getMilestoneMetrics } from '../utils/planMetrics'
 import { getRunDraft } from '../utils/runDrafts'
+import { useUserRole } from '../hooks/useUserRole'
 
 const SEV_TONE = { Critical: 'failed', Major: 'pending', Minor: 'neutral' }
 
@@ -61,6 +62,7 @@ function QuickNavCard({ to, icon, label, count, desc }) {
 }
 
 export function ProjectDashboardPage() {
+  const { isViewer } = useUserRole()
   const { projectId } = useParams()
   const { projects } = useProjects()
   const { testCases } = useTestCases(projectId)
@@ -97,8 +99,8 @@ export function ProjectDashboardPage() {
   }, [projectId])
 
   const recentRuns = useMemo(() =>
-    runs.filter(r => r.completedAt)
-      .sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt))
+    [...runs]
+      .sort((a, b) => new Date(b.completedAt || b.date || b.createdAt || 0) - new Date(a.completedAt || a.date || a.createdAt || 0))
       .slice(0, 5),
   [runs])
 
@@ -126,9 +128,9 @@ export function ProjectDashboardPage() {
   return (
     <div className="page-entrance">
       <PageHeader
-        title={project.name}
-        description={project.description}
-        action={
+        title="Project dashboard"
+        description="Review coverage, execution progress, and issues before your next release."
+        action={!isViewer &&
           <div className="page-actions-row">
             <Link to={`${base}/test-runs`} className="secondary-button" style={{ textDecoration: 'none' }}>
               Start run
@@ -263,7 +265,7 @@ export function ProjectDashboardPage() {
             </div>
             {recentRuns.length === 0 ? (
               <div className="proj-dash-empty">
-                <p>No completed runs yet.</p>
+                <p>No saved runs yet.</p>
                 <Link to={`${base}/test-runs`} className="secondary-button" style={{ textDecoration: 'none', display: 'inline-block', marginTop: 8 }}>
                   Start first run
                 </Link>
@@ -283,7 +285,7 @@ export function ProjectDashboardPage() {
                       </div>
                       <div className="proj-run-row-meta">
                         <StatusPill tone={tone}>{rate}% pass</StatusPill>
-                        <span className="proj-run-date">{new Date(run.completedAt).toLocaleDateString()}</span>
+                        <span className="proj-run-date">{run.completedAt || run.date || run.createdAt ? new Date(run.completedAt || run.date || run.createdAt).toLocaleDateString() : 'Date unavailable'}</span>
                       </div>
                     </div>
                   )

@@ -31,10 +31,11 @@ import { useTestCases } from '../hooks/useTestCases'
 import { useBugs } from '../hooks/useBugs'
 import { useTestRuns } from '../hooks/useTestRuns'
 import { getJiraSettings, saveJiraSettings } from '../utils/storage'
+import { DataLoadState } from '../components/DataLoadState'
 
 export function SettingsPage() {
   const { projectId } = useParams()
-  const { projects, updateProject, removeProject, setPublicShare } = useProjects()
+  const { projects, loading, error, refresh, updateProject, removeProject, setPublicShare } = useProjects()
   const { members } = useTeamMembers()
   const { testCases } = useTestCases(projectId)
   const { bugs } = useBugs(projectId)
@@ -46,8 +47,12 @@ export function SettingsPage() {
   const toast = useToast()
 
   const project = projects.find((p) => p.id === projectId)
-  const [name, setName] = useState(project?.name ?? '')
-  const [description, setDescription] = useState(project?.description ?? '')
+  const [details, setDetails] = useState(null)
+  const name = details?.projectId === projectId ? details.name : project?.name ?? ''
+  const description = details?.projectId === projectId ? details.description : project?.description ?? ''
+  const setName = (value) => setDetails({ projectId, name: value, description })
+  const setDescription = (value) => setDetails({ projectId, name, description: value })
+  const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
   // Jira integration settings
@@ -74,6 +79,7 @@ export function SettingsPage() {
 
   const projectActivities = getActivitiesByProject(projectId).slice(0, 10)
 
+  if (!project && (loading || error)) return <DataLoadState title="Project settings" loading={loading} error={error} onRetry={refresh} />
   if (!project) {
     return (
       <section className="empty-state">
@@ -86,13 +92,18 @@ export function SettingsPage() {
   const projectMembers = members.filter((m) => memberIds.includes(m.id))
   const nonMembers = members.filter((m) => m.uid && !memberIds.includes(m.id))
 
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault()
     if (!name.trim()) return
-    updateProject({ ...project, name: name.trim(), description: description.trim() })
-    setSaved(true)
-    toast.success('Project settings saved')
-    setTimeout(() => setSaved(false), 2000)
+    setSaving(true)
+    try {
+      await updateProject({ ...project, name: name.trim(), description: description.trim() })
+      setSaved(true)
+      toast.success('Project settings saved')
+      setTimeout(() => setSaved(false), 2000)
+    } catch (err) {
+      toast.error(err.message || 'Could not save project settings')
+    } finally { setSaving(false) }
   }
 
   const handleJiraSave = (e) => {
@@ -166,7 +177,7 @@ export function SettingsPage() {
               minRows={2}
             />
             <Group justify="flex-end">
-              <Button type="submit" disabled={!isLead} color={saved ? 'green' : 'accent'}>
+              <Button type="submit" disabled={!isLead || saving || !name.trim()} loading={saving} color={saved ? 'green' : 'accent'}>
                 {saved ? '✓ Saved' : 'Save changes'}
               </Button>
             </Group>

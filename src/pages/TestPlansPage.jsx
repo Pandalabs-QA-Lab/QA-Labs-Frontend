@@ -14,6 +14,7 @@ import { useToast } from '../context/useToast'
 import { PencilIcon, XIcon, PlayIcon, CheckIcon } from '../components/Icons'
 import { getPlanMetrics, getMilestoneMetrics, getPlanTestCases } from '../utils/planMetrics'
 import { normalizeTestStatus, STATUS_TONE } from '../utils/status'
+import { useUserRole } from '../hooks/useUserRole'
 
 const PLAN_STATUSES = ['Open', 'Completed']
 const MILESTONE_STATUSES = ['Open', 'Completed']
@@ -63,6 +64,7 @@ const blankPlan = () => ({ name: '', description: '', requirementIds: [], milest
 const blankMilestone = () => ({ name: '', description: '', dueDate: '', testPlanIds: [], status: 'Open' })
 
 export function TestPlansPage() {
+  const { isLead, isViewer } = useUserRole()
   const { projectId } = useParams()
   const { plans, addPlan, updatePlan, removePlan } = useTestPlans(projectId)
   const { milestones, addMilestone, updateMilestone, removeMilestone } = useMilestones(projectId)
@@ -255,8 +257,8 @@ export function TestPlansPage() {
           action={
             <div className="page-actions-row">
               <button className="secondary-button" type="button" onClick={() => setSelectedPlanId(null)}>Back</button>
-              <button className="secondary-button" type="button" onClick={() => openEditPlan(planObj)}>Edit plan</button>
-              {scopeCases.length > 0 && (
+              {isLead && <button className="secondary-button" type="button" onClick={() => openEditPlan(planObj)}>Edit plan</button>}
+              {!isViewer && scopeCases.length > 0 && (
                 <Link
                   to={`/projects/${projectId}/test-runs?planId=${planObj.id}`}
                   className="primary-button start-run-btn"
@@ -455,7 +457,7 @@ export function TestPlansPage() {
           </section>
         </div>
 
-        {showPlanForm && (
+        {isLead && showPlanForm && (
           <Modal title={editingPlan ? 'Edit test plan' : 'New test plan'} onClose={() => setShowPlanForm(false)} style={{ maxWidth: 560 }}>
             <form className="modal-form" onSubmit={submitPlan}>
               <label>
@@ -546,7 +548,7 @@ export function TestPlansPage() {
           action={
             <div className="page-actions-row">
               <button className="secondary-button" type="button" onClick={() => setSelectedMilestoneId(null)}>Back</button>
-              <button className="primary-button" type="button" onClick={() => openEditMilestone(milestoneObj)}>Edit milestone</button>
+              {isLead && <button className="primary-button" type="button" onClick={() => openEditMilestone(milestoneObj)}>Edit milestone</button>}
             </div>
           }
         />
@@ -665,7 +667,7 @@ export function TestPlansPage() {
           </section>
         </div>
 
-        {showMilestoneForm && (
+        {isLead && showMilestoneForm && (
           <Modal title={editingMilestone ? 'Edit milestone' : 'New milestone'} onClose={() => setShowMilestoneForm(false)} style={{ maxWidth: 560 }}>
             <form className="modal-form" onSubmit={submitMilestone}>
               <label>
@@ -730,11 +732,11 @@ export function TestPlansPage() {
         backTo={`/projects`}
         title="Test plans & milestones"
         description="Test Plans define what to test (scope). Milestones track when it must be done (release deadline)."
-        action={
+        action={isLead && (
           tab === 'plans'
             ? <button className="primary-button" type="button" onClick={openAddPlan}>+ Add test plan</button>
             : <button className="primary-button" type="button" onClick={openAddMilestone}>+ Add milestone</button>
-        }
+        )}
       />
 
       {/* Summary Metrics Strip */}
@@ -797,7 +799,7 @@ export function TestPlansPage() {
             <div className="req-empty-state">
               <h3>No test plans yet</h3>
               <p>A <strong>Test Plan</strong> defines the <em>scope</em> of testing — which requirements to cover and which test cases to run. Create a plan per feature, sprint, or release area.</p>
-              <button className="primary-button" type="button" onClick={openAddPlan}>+ Add test plan</button>
+              {isLead && <button className="primary-button" type="button" onClick={openAddPlan}>+ Add test plan</button>}
             </div>
           ) : (
             <>
@@ -824,6 +826,15 @@ export function TestPlansPage() {
 
               <div className="table-wrap tp-table-wrap">
                 <table className="tp-table">
+                  <colgroup>
+                    <col style={{ width: '32%' }} />
+                    <col style={{ width: '10%' }} />
+                    <col style={{ width: '18%' }} />
+                    <col style={{ width: '10%' }} />
+                    <col style={{ width: '12%' }} />
+                    <col style={{ width: '9%' }} />
+                    <col style={{ width: '9%' }} />
+                  </colgroup>
                   <thead>
                     <tr>
                       <th>Plan</th>
@@ -884,7 +895,7 @@ export function TestPlansPage() {
                           <td>
                             <button
                               className={`tp-status-toggle ${plan.status === 'Completed' ? 'tp-status-toggle--done' : 'tp-status-toggle--open'}`}
-                              type="button" onClick={() => togglePlanStatus(plan)}
+                              type="button" disabled={!isLead} onClick={() => togglePlanStatus(plan)}
                               title={plan.status === 'Completed' ? 'Reopen plan' : 'Mark complete'}
                             >
                               <CheckIcon width={12} height={12} />
@@ -893,7 +904,7 @@ export function TestPlansPage() {
                           </td>
                           <td style={{ textAlign: 'right' }}>
                             <div className="table-row-actions">
-                              {metrics.scopeTotal > 0 && plan.status !== 'Completed' && (
+                              {!isViewer && metrics.scopeTotal > 0 && plan.status !== 'Completed' && (
                                 <Link
                                   to={`/projects/${projectId}/test-runs?planId=${plan.id}`}
                                   className="icon-btn-action icon-btn-action--run"
@@ -902,12 +913,12 @@ export function TestPlansPage() {
                                   <PlayIcon width={14} height={14} />
                                 </Link>
                               )}
-                              <button className="icon-btn-action" type="button" title="Edit" onClick={() => openEditPlan(plan)}>
+                              {isLead && <button className="icon-btn-action" type="button" title="Edit" onClick={() => openEditPlan(plan)}>
                                 <PencilIcon width={14} height={14} />
-                              </button>
-                              <button className="icon-btn-action text-danger" type="button" title="Delete" onClick={() => handleDeletePlan(plan)}>
+                              </button>}
+                              {isLead && <button className="icon-btn-action text-danger" type="button" title="Delete" onClick={() => handleDeletePlan(plan)}>
                                 <XIcon width={14} height={14} />
-                              </button>
+                              </button>}
                             </div>
                           </td>
                         </tr>
@@ -933,7 +944,7 @@ export function TestPlansPage() {
                         </div>
                         <button
                           className={`tp-status-toggle ${plan.status === 'Completed' ? 'tp-status-toggle--done' : 'tp-status-toggle--open'}`}
-                          type="button" onClick={() => togglePlanStatus(plan)}
+                          type="button" disabled={!isLead} onClick={() => togglePlanStatus(plan)}
                         >
                           <CheckIcon width={12} height={12} />
                           <span>{plan.status === 'Completed' ? 'Done' : 'Open'}</span>
@@ -959,13 +970,13 @@ export function TestPlansPage() {
                         <SegBar total={metrics.scopeTotal} passed={metrics.scopePassed} failed={metrics.scopeFailed} blocked={metrics.scopeBlocked} pct={metrics.progressPct} />
                       </div>
                       <div className="tp-card-actions">
-                        {metrics.scopeTotal > 0 && plan.status !== 'Completed' && (
+                        {!isViewer && metrics.scopeTotal > 0 && plan.status !== 'Completed' && (
                           <Link to={`/projects/${projectId}/test-runs?planId=${plan.id}`} className="secondary-button" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                             <PlayIcon width={12} height={12} /> Run
                           </Link>
                         )}
-                        <button className="secondary-button" type="button" onClick={() => openEditPlan(plan)}><PencilIcon width={14} height={14} /> Edit</button>
-                        <button className="secondary-button text-danger" type="button" onClick={() => handleDeletePlan(plan)}><XIcon width={14} height={14} /> Delete</button>
+                        {isLead && <button className="secondary-button" type="button" onClick={() => openEditPlan(plan)}><PencilIcon width={14} height={14} /> Edit</button>}
+                        {isLead && <button className="secondary-button text-danger" type="button" onClick={() => handleDeletePlan(plan)}><XIcon width={14} height={14} /> Delete</button>}
                       </div>
                     </div>
                   )
@@ -988,7 +999,7 @@ export function TestPlansPage() {
             <div className="req-empty-state">
               <h3>No milestones yet</h3>
               <p>A <strong>Milestone</strong> is a <em>release deadline</em> — it groups multiple test plans and shows whether you're on track to ship by a target date. Think of it as the manager's view of release readiness.</p>
-              <button className="primary-button" type="button" onClick={openAddMilestone}>+ Add milestone</button>
+              {isLead && <button className="primary-button" type="button" onClick={openAddMilestone}>+ Add milestone</button>}
             </div>
           ) : (
             <>
@@ -1050,12 +1061,12 @@ export function TestPlansPage() {
                             {milestone.status === 'Completed' ? 'Done' : metrics.overdue ? 'Overdue' : metrics.onTrack ? 'On track' : 'At risk'}
                           </StatusPill>
                           <div className="ms-card-hdr-actions">
-                            <button className="icon-btn-action" type="button" title="Edit" onClick={() => openEditMilestone(milestone)}>
+                            {isLead && <button className="icon-btn-action" type="button" title="Edit" onClick={() => openEditMilestone(milestone)}>
                               <PencilIcon width={13} height={13} />
-                            </button>
-                            <button className="icon-btn-action text-danger" type="button" title="Delete" onClick={() => handleDeleteMilestone(milestone)}>
+                            </button>}
+                            {isLead && <button className="icon-btn-action text-danger" type="button" title="Delete" onClick={() => handleDeleteMilestone(milestone)}>
                               <XIcon width={13} height={13} />
-                            </button>
+                            </button>}
                           </div>
                         </div>
                       </div>
@@ -1089,7 +1100,7 @@ export function TestPlansPage() {
                         <div className="ms-card-footer">
                           <button
                             className={`tp-status-toggle ${milestone.status === 'Completed' ? 'tp-status-toggle--done' : 'tp-status-toggle--open'}`}
-                            type="button" onClick={() => toggleMilestoneStatus(milestone)}
+                            type="button" disabled={!isLead} onClick={() => toggleMilestoneStatus(milestone)}
                             title={milestone.status === 'Completed' ? 'Reopen milestone' : 'Mark complete'}
                           >
                             <CheckIcon width={12} height={12} />
@@ -1109,7 +1120,7 @@ export function TestPlansPage() {
         </section>
       )}
 
-      {showPlanForm && (
+      {isLead && showPlanForm && (
         <Modal title={editingPlan ? 'Edit test plan' : 'New test plan'} onClose={() => setShowPlanForm(false)} style={{ maxWidth: 560 }}>
           <form className="modal-form" onSubmit={submitPlan}>
             <label>
@@ -1167,7 +1178,7 @@ export function TestPlansPage() {
         </Modal>
       )}
 
-      {showMilestoneForm && (
+      {isLead && showMilestoneForm && (
         <Modal title={editingMilestone ? 'Edit milestone' : 'New milestone'} onClose={() => setShowMilestoneForm(false)} style={{ maxWidth: 560 }}>
           <form className="modal-form" onSubmit={submitMilestone}>
             <label>

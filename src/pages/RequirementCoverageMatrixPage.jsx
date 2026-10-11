@@ -1,30 +1,14 @@
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { PageHeader } from '../components/PageHeader'
 import { StatusPill } from '../components/StatusPill'
 import { useRequirements } from '../hooks/useRequirements'
 import { useTestCases } from '../hooks/useTestCases'
 import { useTestRuns } from '../hooks/useTestRuns'
-import { normalizeTestStatus, STATUS_TONE } from '../utils/status'
+import { STATUS_TONE } from '../utils/status'
+import { buildLatestStatusMap, getRequirementCoverage } from '../utils/coverageMetrics'
 
 const enc = (v) => encodeURIComponent(v)
-
-/**
- * Build a map of testCaseId → latest execution status from the most recent run.
- * Runs are processed oldest-first so the newest run's status wins.
- */
-function buildLatestStatusMap(runs) {
-  const sorted = [...runs].sort(
-    (a, b) => new Date(a.completedAt || a.startedAt || 0) - new Date(b.completedAt || b.startedAt || 0),
-  )
-  const map = {}
-  sorted.forEach((run) => {
-    ;(run.cases || []).forEach((rc) => {
-      if (rc.testCaseId) map[rc.testCaseId] = rc.status
-    })
-  })
-  return map
-}
 
 export function RequirementCoverageMatrixPage() {
   const { projectId } = useParams()
@@ -41,66 +25,7 @@ export function RequirementCoverageMatrixPage() {
   const tcById = useMemo(() => new Map(testCases.map((tc) => [tc.id, tc])), [testCases])
   const latestStatusMap = useMemo(() => buildLatestStatusMap(runs), [runs])
 
-  // Build matrix rows: one row per requirement.
-  const rows = useMemo(() => {
-    return requirements.map((req) => {
-      const linkedIds = req.testCaseIds || []
-      const linkedTcs = linkedIds
-        .map((id) => tcById.get(id))
-        .filter(Boolean)
-
-      // Compute latest status for each linked TC
-      const tcStatuses = linkedTcs.map((tc) => {
-        const latestRunStatus = latestStatusMap[tc.id]
-        const status = latestRunStatus || tc.status || 'Not Executed'
-        return { tc, status: normalizeTestStatus(status) }
-      })
-
-      const total = tcStatuses.length
-      const passed = tcStatuses.filter((t) => t.status === 'Pass').length
-      const failed = tcStatuses.filter((t) => t.status === 'Fail').length
-      const blocked = tcStatuses.filter((t) => t.status === 'Blocker').length
-      const pending = tcStatuses.filter((t) => t.status === 'Not Executed').length
-      const executed = total - pending
-
-      let verdict, verdictTone
-      if (total === 0) {
-        verdict = 'Uncovered'
-        verdictTone = 'failed'
-      } else if (blocked > 0) {
-        verdict = 'Blocked'
-        verdictTone = 'blocker'
-      } else if (failed > 0) {
-        verdict = 'Failing'
-        verdictTone = 'failed'
-      } else if (passed === total && total > 0) {
-        verdict = 'Verified'
-        verdictTone = 'passed'
-      } else if (executed === 0) {
-        verdict = 'Pending'
-        verdictTone = 'pending'
-      } else {
-        verdict = 'In progress'
-        verdictTone = 'pending'
-      }
-
-      const pct = total > 0 ? Math.round((passed / total) * 100) : 0
-
-      return {
-        req,
-        tcStatuses,
-        total,
-        passed,
-        failed,
-        blocked,
-        pending,
-        executed,
-        verdict,
-        verdictTone,
-        pct,
-      }
-    })
-  }, [requirements, tcById, latestStatusMap])
+  const rows = useMemo(() => requirements.map(req => getRequirementCoverage(req, tcById, latestStatusMap)), [requirements, tcById, latestStatusMap])
 
   // Apply filters
   const filtered = useMemo(() => {
@@ -251,7 +176,7 @@ export function RequirementCoverageMatrixPage() {
             <p className="muted-text">No requirements match your filters.</p>
           </div>
         ) : (
-          <div className="table-wrap">
+          <div className="table-wrap cov-matrix-wrap">
             <table className="cov-matrix-table">
               <colgroup>
                 <col className="cov-col-key" />
@@ -275,7 +200,7 @@ export function RequirementCoverageMatrixPage() {
               </thead>
               <tbody>
                 {filtered.map(({ req, tcStatuses, total, passed, failed, blocked, pending, verdict, verdictTone, pct }) => (
-                  <>
+                  <Fragment key={req.id}>
                     <tr
                       key={req.id}
                       className={`cov-matrix-row ${
@@ -285,12 +210,12 @@ export function RequirementCoverageMatrixPage() {
                         : ''
                       }`}
                     >
-                      <td className="mono tc-id">
+                      <td className="mono tc-id" data-label="Key">
                         <Link className="text-link" to={`/projects/${projectId}/requirements/${req.id}`}>
                           {req.key || 'View'}
                         </Link>
                       </td>
-                      <td className="title-cell">
+                      <td className="title-cell" data-label="Requirement">
                         <Link
                           className="text-link"
                           to={`/projects/${projectId}/requirements/${req.id}`}
@@ -302,19 +227,19 @@ export function RequirementCoverageMatrixPage() {
                           <p className="req-desc" style={{ marginTop: '2px', fontSize: '11.5px' }}>{req.description}</p>
                         )}
                       </td>
-                      <td>
+                      <td data-label="Priority">
                         <span className={`tp-tag tp-tag--${(req.priority || 'Medium').toLowerCase() === 'high' ? 'danger' : (req.priority || 'Medium').toLowerCase() === 'low' ? 'neutral' : 'pending'}`}>
                           {req.priority || 'Medium'}
                         </span>
                       </td>
-                      <td style={{ textAlign: 'center' }}>
+                      <td data-label="Cases" style={{ textAlign: 'center' }}>
                         {total === 0 ? (
                           <span style={{ color: 'var(--danger, #dc2626)', fontWeight: 700 }}>0</span>
                         ) : (
                           <span className="tp-rate-num">{total}</span>
                         )}
                       </td>
-                      <td>
+                      <td data-label="Latest statuses">
                         {tcStatuses.length === 0 ? (
                           <span className="muted-text">—</span>
                         ) : (
@@ -346,7 +271,7 @@ export function RequirementCoverageMatrixPage() {
                           </div>
                         )}
                       </td>
-                      <td>
+                      <td data-label="Pass rate">
                         {total > 0 ? (
                           <div className="seg-progress">
                             <div className="seg-bar">
@@ -360,7 +285,7 @@ export function RequirementCoverageMatrixPage() {
                           <span className="muted-text">—</span>
                         )}
                       </td>
-                      <td>
+                      <td data-label="Coverage">
                         <div className="cov-verdict-cell">
                           <StatusPill tone={verdictTone}>{verdict}</StatusPill>
                           {total > 0 && (
@@ -370,6 +295,7 @@ export function RequirementCoverageMatrixPage() {
                               onClick={() => toggleExpand(req.id)}
                               title={expandedReqId === req.id ? 'Collapse' : 'Show test cases'}
                               aria-label={expandedReqId === req.id ? 'Collapse' : 'Show test cases'}
+                              aria-expanded={expandedReqId === req.id}
                             >
                               {expandedReqId === req.id ? '▲' : '▼'}
                             </button>
@@ -394,13 +320,13 @@ export function RequirementCoverageMatrixPage() {
                               <tbody>
                                 {tcStatuses.map(({ tc, status }) => (
                                   <tr key={tc.id} className={status === 'Fail' ? 'cov-tc-row--fail' : status === 'Blocker' ? 'cov-tc-row--block' : status === 'Pass' ? 'cov-tc-row--pass' : ''}>
-                                    <td className="mono tc-id">{tc.sourceTcId || tc.id.slice(0, 8).toUpperCase()}</td>
-                                    <td>
+                                    <td className="mono tc-id" data-label="Test case">{tc.sourceTcId || tc.id.slice(0, 8).toUpperCase()}</td>
+                                    <td data-label="Title">
                                       <Link className="text-link" to={`/projects/${projectId}/test-cases/${tc.id}`}>{tc.title}</Link>
                                     </td>
-                                    <td>{tc.module || '—'}</td>
-                                    <td>{tc.priority || '—'}</td>
-                                    <td>
+                                    <td data-label="Module">{tc.module || '—'}</td>
+                                    <td data-label="Priority">{tc.priority || '—'}</td>
+                                    <td data-label="Latest status">
                                       <span className={`status-pill status-pill--${STATUS_TONE[status] ?? 'pending'}`}>{status}</span>
                                     </td>
                                   </tr>
@@ -411,7 +337,7 @@ export function RequirementCoverageMatrixPage() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 ))}
               </tbody>
             </table>
