@@ -2,6 +2,12 @@
 
 React 19 and Vite 8 frontend for QA Lab. The Express API in the sibling [backend repository](https://github.com/Pandalabs-QA-Lab/QA-Labs-Backend) handles accounts, workspace access, projects, and uploads. Keep the repositories separate so each can be built and deployed independently.
 
+## Browser bug capture (local beta)
+
+The unpacked Chrome/Edge extension in [browser-extension](browser-extension/README.md) captures a screenshot and page environment, supports highlighting and solid redaction, and reports directly to a project with optional test-case linking. Users can download it and follow installation steps from **Workspace Settings → Browser extension** or project Settings. `npm run dev` and `npm run build` generate the download ZIP automatically; use `npm run extension:package` after changing extension files while Vite is already running. It is not published to the browser stores yet.
+
+Click a bug title to edit it (Viewers get read-only details). The **Preview** action shows authenticated screenshots first, followed by the issue details and expected/actual results. Images also appear inside the edit form with full-size links. Newly saved bugs and the extension's saved-bug link open Preview automatically. The bug tracker edit dialog keeps Save/Cancel visible while its form and discussion scroll together.
+
 ## Run locally
 
 1. Start PostgreSQL and the backend using its [setup instructions](https://github.com/Pandalabs-QA-Lab/QA-Labs-Backend#run-locally). The API should respond at `http://localhost:4000/api/health`.
@@ -17,7 +23,7 @@ React 19 and Vite 8 frontend for QA Lab. The Express API in the sibling [backend
 
 The app opens on a public landing/sign-in page. New accounts do not automatically get a workspace. A platform admin can approve workspace requests or users can accept an invite; roles are enforced by the backend. Admin rights are granted from a trusted backend shell, not by choosing an email in the browser.
 
-QA Leads can invite a person by email from project settings or workspace settings. A project invite starts them as a Viewer of that project; a workspace invite starts them as a Viewer of all workspace projects. Existing accounts see invitations in the notification menu, and new recipients can register using the invited email. Each link expires after seven days. QA Lab currently opens an email draft or copies the link; it does not send invitation email automatically.
+QA Leads can invite a person by email from project settings or workspace settings. A project invite starts them as a Viewer of that project; a workspace invite starts them as a Viewer of all workspace projects. Existing accounts see invitations in the notification menu, and new recipients can register using the invited email. Each link expires after seven days. When backend SMTP is configured, QA Lab sends invitation emails and shows delivery status with a resend action. Without SMTP, copying the link or opening an email draft remains available. Deploy the backend invitation email migration and API before the frontend.
 
 Platform admins can create accounts with temporary passwords and optionally place them in a workspace as Viewers. The new user must set a private password at first sign-in. Admins can remove access from one workspace or delete an ordinary account across all workspaces; workspace owners and platform admins are protected from account deletion.
 

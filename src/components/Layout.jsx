@@ -397,7 +397,7 @@ function ProjectOverview({ projectId }) {
   else if (pathname.includes('/settings')) currentPage = 'Settings'
 
   return (
-    <section className="project-overview-bar" aria-label="Project health summary">
+    <section className={`project-overview-bar${pathname.endsWith('/dashboard') ? '' : ' project-overview-bar--compact'}`} aria-label="Project health summary">
       <div className="project-bar-info">
         <div className="project-bar-heading">
           <h2>{project.name}</h2>

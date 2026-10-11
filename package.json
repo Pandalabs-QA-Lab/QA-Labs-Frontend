@@ -4,6 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "extension:package": "node scripts/packageExtension.mjs",
+    "predev": "npm run extension:package",
+    "prebuild": "npm run extension:package",
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",

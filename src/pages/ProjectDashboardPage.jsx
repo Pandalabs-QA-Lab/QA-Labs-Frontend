@@ -143,6 +143,14 @@ export function ProjectDashboardPage() {
       />
 
       {/* Quick navigation */}
+      {!isViewer && runs.length === 0 && <section className="project-start-guide" aria-label="Project setup checklist">
+        <div><h2>Get your first test run ready</h2><p>Start with what your product should do, then check it with linked test cases.</p></div>
+        <ol>
+          <li><Link to={`${base}/requirements`}><span className="setup-step-number">{requirements.length > 0 ? '✓' : '1'}</span><span><strong>Add requirements</strong><small>Define features and acceptance criteria.</small></span></Link></li>
+          <li><Link to={`${base}/test-cases`}><span className="setup-step-number">{testCases.length > 0 && requirements.some((requirement) => requirement.testCaseIds?.length > 0) ? '✓' : '2'}</span><span><strong>Write and link test cases</strong><small>Organize cases in folders and map them to requirements.</small></span></Link></li>
+          <li><Link to={`${base}/test-runs`}><span className="setup-step-number">3</span><span><strong>Start your first run</strong><small>Record results and log bugs as you test.</small></span></Link></li>
+        </ol>
+      </section>}
       <div className="proj-qnav-grid">
         <QuickNavCard
           to={`${base}/test-cases`}

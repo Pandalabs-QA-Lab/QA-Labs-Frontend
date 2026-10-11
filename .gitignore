@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+public/downloads/qa-lab-bug-capture.zip
 *.local
 .env
 .env.*

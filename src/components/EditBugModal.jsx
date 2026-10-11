@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Modal } from './Modal'
 import { EvidenceLinksField } from './EvidenceLinksField'
+import { ScreenshotPreview } from './ScreenshotPreview'
 import { useUser } from '../context/UserContext'
 import { useTeamMembers } from '../hooks/useTeamMembers'
 
@@ -43,8 +44,12 @@ export function EditBugModal({ bug, projectId, onSave, onClose }) {
   const bugId = bug.sourceBugId || bug.id?.slice(0, 8).toUpperCase()
 
   return (
-    <Modal title={`Edit Bug ${bugId ? `· ${bugId}` : ''}`} onClose={onClose}>
+    <Modal title={`Edit Bug ${bugId ? `· ${bugId}` : ''}`} className="modal--bug-edit" onClose={onClose}>
       <form className="modal-form" onSubmit={handleSubmit}>
+        {!!form.evidenceLinks?.some(link => link.attachmentId) && <section className="bug-edit-evidence" aria-label="Image preview while editing">
+          <h3>Screenshot preview</h3>
+          {form.evidenceLinks.filter(link => link.attachmentId).map(link => <ScreenshotPreview key={link.attachmentId} link={link} />)}
+        </section>}
         <label>
           Title <span className="required">*</span>
           <input autoFocus value={form.title} onChange={set('title')} placeholder="Describe the defect" />

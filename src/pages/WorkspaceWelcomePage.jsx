@@ -16,6 +16,7 @@ export function WorkspaceWelcomePage() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [loadingWorkspaces, setLoadingWorkspaces] = useState(true)
+  const [choice, setChoice] = useState('')
 
   const refresh = useCallback(async () => {
     if (authUser?.isPlatformAdmin) {
@@ -72,6 +73,12 @@ export function WorkspaceWelcomePage() {
   }
 
   const latest = requests[0]
+  const checkStatus = async () => {
+    setBusy(true)
+    setError('')
+    try { await refresh() } catch (err) { setError(err.message) }
+    finally { setBusy(false) }
+  }
   if (authUser?.isPlatformAdmin) {
     return <main className="auth-backdrop welcome-backdrop">
       <div className="auth-card welcome-card">
@@ -117,11 +124,27 @@ export function WorkspaceWelcomePage() {
           <h2>Your invitations</h2>
           {invitations.map((item) => <div className="welcome-workspace" key={item.id}>
             <span>{item.projectName ? `${item.projectName} · ${item.workspaceName}` : item.workspaceName}</span>
-            <a className="secondary-button" href={`#/join/${item.token}`}>Review invitation</a>
+            <a className="primary-button" href={`#/join/${item.token}`}>Accept invitation</a>
           </div>)}
         </section>}
 
-        <section className="welcome-section">
+        {loadingWorkspaces && <p role="status">Loading your workspaces and invitations…</p>}
+        {latest?.status === 'PENDING' && <section className="welcome-section">
+          <div className="welcome-pending" role="status"><div><strong>Waiting for admin approval</strong>
+            <p>{latest.workspaceName} · {latest.projectName}</p>
+            <p>Your workspace and first project will appear here after approval.</p>
+          </div></div>
+          <button type="button" className="secondary-button" disabled={busy} onClick={checkStatus}>Check status</button>
+        </section>}
+        <div className="welcome-choices" aria-label="Get started">
+          <button type="button" className={`welcome-choice${choice === 'JOIN' ? ' is-selected' : ''}`} aria-pressed={choice === 'JOIN'} onClick={() => setChoice('JOIN')}>
+            <strong>Join a team</strong><span>Use an invitation from your teammate.</span>
+          </button>
+          <button type="button" className={`welcome-choice${choice === 'REQUEST' ? ' is-selected' : ''}`} aria-pressed={choice === 'REQUEST'} onClick={() => setChoice('REQUEST')}>
+            <strong>Request a workspace</strong><span>Ask an admin to set up your first project.</span>
+          </button>
+        </div>
+        {choice === 'JOIN' && <section className="welcome-section">
           <h2>Join a team</h2>
           <p className="welcome-section-copy">Have an invitation? Paste the link or code below.</p>
           <form className="auth-form" onSubmit={join}>
@@ -130,9 +153,9 @@ export function WorkspaceWelcomePage() {
             </label>
             <button className="secondary-button" type="submit" disabled={busy}>Join as Viewer</button>
           </form>
-        </section>
+        </section>}
 
-        <section className="welcome-section">
+        {choice === 'REQUEST' && latest?.status !== 'PENDING' && <section className="welcome-section">
           <h2>Request a workspace and project</h2>
           {latest?.status === 'PENDING' ? <div className="welcome-pending" role="status">
             <span className="welcome-pending-icon" aria-hidden="true">✓</span>
@@ -164,7 +187,7 @@ export function WorkspaceWelcomePage() {
               <button className="primary-button" type="submit" disabled={busy}>Request admin approval</button>
               {latest?.status === 'REJECTED' && <p className="welcome-rejected">Your previous request was declined. You can submit a new one or use the contact link below for help.</p>}
             </form>}
-        </section>
+        </section>}
         <footer className="welcome-footer">
           <div className="welcome-contact"><span>Questions?</span><a href={`mailto:${ADMIN_CONTACT}`}>{ADMIN_CONTACT}</a></div>
           <button className="welcome-signout" type="button" onClick={signOut}>Sign out</button>

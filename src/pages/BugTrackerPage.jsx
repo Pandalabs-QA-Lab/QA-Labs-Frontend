@@ -1,5 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { EvidenceLinksField } from '../components/EvidenceLinksField'
+import { BugPreview } from '../components/BugPreview'
+import { ScreenshotPreview } from '../components/ScreenshotPreview'
 import { XIcon, ChevronLeftIcon, ChevronRightIcon, SortAscIcon, SortDescIcon, SortNoneIcon } from '../components/Icons'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { Modal } from '../components/Modal'
@@ -61,13 +63,17 @@ const blank = (prefillTcId = '') => ({
 
 const shortId = (id) => id.slice(0, 8).toUpperCase()
 
-function BugForm({ form, setForm, testCases, requirements = [], members, moduleSuggestions = [], onCancel, onSubmit, submitLabel, history = [], activities = [], disabled = false, tagSuggestions = [] }) {
+function BugForm({ form, setForm, testCases, requirements = [], members, moduleSuggestions = [], onCancel, onSubmit, submitLabel, history = [], activities = [], disabled = false, saving = false, tagSuggestions = [], formId, hideActions = false }) {
   const { user } = useUser()
   const set = (key) => (e) => setForm((c) => ({ ...c, [key]: e.target.value }))
 
   return (
-    <form className="modal-form" onSubmit={onSubmit}>
-      <fieldset disabled={disabled} style={{ border: 'none', padding: 0, margin: 0, display: 'contents' }}>
+    <form id={formId} className="modal-form" onSubmit={onSubmit}>
+      <fieldset disabled={disabled || saving} style={{ border: 'none', padding: 0, margin: 0, display: 'contents' }}>
+      {!!form.evidenceLinks?.some(link => link.attachmentId) && <section className="bug-edit-evidence" aria-label="Image preview while editing">
+        <h3>Screenshot preview</h3>
+        {form.evidenceLinks.filter(link => link.attachmentId).map(link => <ScreenshotPreview key={link.attachmentId} link={link} />)}
+      </section>}
       <label>
         Title <span className="required">*</span>
         <input autoFocus value={form.title} onChange={set('title')} placeholder="Describe the defect" />
@@ -270,10 +276,10 @@ function BugForm({ form, setForm, testCases, requirements = [], members, moduleS
 
       </fieldset>
 
-      <div className="modal-footer">
-        <button type="button" className="secondary-button" onClick={onCancel}>{disabled ? 'Close' : 'Cancel'}</button>
-        {!disabled && <button type="submit" className="primary-button">{submitLabel}</button>}
-      </div>
+      {!hideActions && <div className="modal-footer">
+        <button type="button" className="secondary-button" disabled={saving} onClick={onCancel}>{disabled ? 'Close' : 'Cancel'}</button>
+        {!disabled && <button type="submit" className="primary-button" disabled={saving}>{saving ? 'Saving…' : submitLabel}</button>}
+      </div>}
     </form>
   )
 }
@@ -298,6 +304,17 @@ export function BugTrackerPage() {
   const [showAdd, setShowAdd] = useState(false)
   const [showImport, setShowImport] = useState(false)
   const [editing, setEditing] = useState(null)
+  const [previewId, setPreviewId] = useState(null)
+  const [bugSaving, setBugSaving] = useState(false)
+  const previewBug = bugs.find(bug => bug.id === (previewId || searchParams.get('preview')))
+  const closePreview = () => {
+    setPreviewId(null)
+    if (searchParams.has('preview')) {
+      const next = new URLSearchParams(searchParams)
+      next.delete('preview')
+      setSearchParams(next, { replace: true })
+    }
+  }
   const [form, setForm] = useState(blank)
   const [search, setSearch] = useState(() => searchParams.get('search') || '')
   const [fSeverity, setFSeverity] = useState(() => searchParams.get('severity') || '')
@@ -327,12 +344,12 @@ export function BugTrackerPage() {
   }, [searchParams, openAddModal, setSearchParams])
 
   const handleEscape = useCallback(() => {
-    if (showAdd) {
+    if (showAdd && !bugSaving) {
       setShowAdd(false)
       setEditing(null)
       setForm(blank())
     }
-  }, [showAdd])
+  }, [showAdd, bugSaving])
 
   useKeyboardShortcuts({
     openAdd: openAddModal,
@@ -410,21 +427,26 @@ export function BugTrackerPage() {
     return { ...bug, history: [...(bug.history || []), entry] }
   }
 
-  const handleAdd = (e) => {
+  const handleAdd = async (e) => {
     e.preventDefault()
-    if (!form.title.trim()) return
+    if (!form.title.trim() || bugSaving) return
     const initialHistory = {
       id: newId(), type: 'created', user,
       timestamp: new Date().toISOString(), details: 'Bug created',
     }
-    addBug({ ...form, history: [initialHistory] })
-    setShowAdd(false)
-    toast.success('Bug logged')
+    setBugSaving(true)
+    try {
+      const created = await addBug({ ...form, history: [initialHistory] })
+      setShowAdd(false)
+      setPreviewId(created.id)
+      toast.success('Bug logged')
+    } catch (error) { toast.error(error.message || 'Could not log bug. Your details are still here.') }
+    finally { setBugSaving(false) }
   }
 
-  const handleEdit = (e) => {
+  const handleEdit = async (e) => {
     e.preventDefault()
-    if (!form.title.trim()) return
+    if (!form.title.trim() || bugSaving) return
 
     let updatedBug = { ...editing, ...form }
 
@@ -441,9 +463,14 @@ export function BugTrackerPage() {
       if (changed) updatedBug = recordHistory(updatedBug, 'update', 'Bug details updated')
     }
 
-    updateBug(updatedBug)
-    setEditing(null)
-    toast.success('Bug updated')
+    setBugSaving(true)
+    try {
+      const updated = await updateBug(updatedBug)
+      setEditing(null)
+      setPreviewId(updated.id)
+      toast.success('Bug updated')
+    } catch (error) { toast.error(error.message || 'Could not update bug. Your details are still here.') }
+    finally { setBugSaving(false) }
   }
 
   const handleInlineStatusChange = (bug, newStatus) => {
@@ -606,9 +633,9 @@ export function BugTrackerPage() {
                     <td className="mono tc-id">{bug.sourceBugId || shortId(bug.id)}</td>
                     <td className="title-cell">
                       <button className="link-btn" type="button" onClick={() => openEdit(bug)}>{bug.title}</button>
-                      {bug.description && <p className="bug-desc">{bug.description}</p>}
+                      {bug.description && <p className="bug-desc bug-desc--compact" title={bug.description}>{bug.description}</p>}
                       {(bug.environment || bug.build) && (
-                        <p className="bug-desc text-muted">
+                        <p className="bug-desc bug-desc--compact text-muted" title={[bug.environment, bug.build].filter(Boolean).join(' · ')}>
                           {[bug.environment, bug.build].filter(Boolean).join(' · ')}
                         </p>
                       )}
@@ -649,6 +676,7 @@ export function BugTrackerPage() {
                       </select>
                     </td>
                     <td>
+                      <button className="secondary-button bug-preview-action" type="button" aria-label={`Preview ${bug.sourceBugId || bug.title}`} onClick={() => setPreviewId(bug.id)}>Preview</button>
                       {jiraSettings.domain && jiraSettings.projectKey && (
                         <button
                           className="jira-push-btn"
@@ -745,6 +773,7 @@ export function BugTrackerPage() {
                   )}
                 </div>
                 <div className="mobile-card-actions">
+                  <button className="secondary-button mobile-card-action-btn" type="button" onClick={() => setPreviewId(bug.id)}>Preview</button>
                   {jiraSettings.domain && jiraSettings.projectKey && (
                     <button className="jira-push-btn mobile-card-action-btn" type="button" onClick={() => pushToJira(bug)} aria-label={`Push "${bug.title}" to Jira`}>
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -753,9 +782,6 @@ export function BugTrackerPage() {
                       Push to Jira
                     </button>
                   )}
-                  <button className="secondary-button mobile-card-action-btn" type="button" onClick={() => openEdit(bug)}>
-                    Open & Edit
-                  </button>
                   {isLead && (
                     <button className="danger-button mobile-card-action-btn" type="button"
                       onClick={async () => {
@@ -796,7 +822,7 @@ export function BugTrackerPage() {
       </section>
 
       {showAdd && (
-        <Modal title="Log bug" onClose={() => setShowAdd(false)}>
+        <Modal title="Log bug" onClose={() => { if (!bugSaving) setShowAdd(false) }} closeOnBackdrop={!bugSaving}>
           <BugForm
             form={form}
             setForm={setForm}
@@ -807,14 +833,20 @@ export function BugTrackerPage() {
             onCancel={() => setShowAdd(false)}
             onSubmit={handleAdd}
             submitLabel="Log bug"
+            saving={bugSaving}
             tagSuggestions={allTags}
           />
         </Modal>
       )}
 
+      {previewBug && <BugPreview key={previewBug.id} bug={previewBug} testCases={testCases} requirements={requirements} onClose={closePreview} onEdit={isViewer ? undefined : () => { closePreview(); openEdit(previewBug) }} />}
+
       {editing && (
-        <Modal title={isViewer ? 'Bug details' : 'Edit bug'} onClose={() => setEditing(null)}>
+        <Modal title={isViewer ? 'Bug details' : 'Edit bug'} className="modal--bug-edit" onClose={() => { if (!bugSaving) setEditing(null) }} closeOnBackdrop={!bugSaving}>
+          <div className="bug-edit-body">
           <BugForm
+            formId="edit-bug-form"
+            hideActions
             form={form}
             setForm={setForm}
             testCases={testCases}
@@ -827,6 +859,7 @@ export function BugTrackerPage() {
             onSubmit={handleEdit}
             submitLabel="Save changes"
             disabled={isViewer}
+            saving={bugSaving}
             tagSuggestions={allTags}
           />
           <div style={{ marginTop: '0', borderTop: '1px solid var(--border)', padding: '16px 18px 18px' }}>
@@ -838,6 +871,11 @@ export function BugTrackerPage() {
               entityTitle={editing.title}
               entityOwnerName={editing.reportedBy || editing.assignedTo}
             />
+          </div>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="secondary-button" disabled={bugSaving} onClick={() => setEditing(null)}>{isViewer ? 'Close' : 'Cancel'}</button>
+            {!isViewer && <button type="submit" form="edit-bug-form" className="primary-button" disabled={bugSaving}>{bugSaving ? 'Saving…' : 'Save changes'}</button>}
           </div>
         </Modal>
       )}

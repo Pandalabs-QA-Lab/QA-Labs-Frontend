@@ -32,6 +32,7 @@ import { useBugs } from '../hooks/useBugs'
 import { useTestRuns } from '../hooks/useTestRuns'
 import { getJiraSettings, saveJiraSettings } from '../utils/storage'
 import { DataLoadState } from '../components/DataLoadState'
+import { BrowserExtensionSettings } from '../components/BrowserExtensionSettings'
 
 export function SettingsPage() {
   const { projectId } = useParams()
@@ -398,6 +399,7 @@ export function SettingsPage() {
       </Card>
 
       {/* ─── Danger Zone ─── */}
+      <BrowserExtensionSettings />
       {isLead && (
         <Card shadow="sm" padding="lg" radius="md" withBorder mb="md" style={{ borderColor: 'var(--danger)' }} bg="var(--surface)">
           <Title order={4} c="red" mb="sm" style={{ fontFamily: 'var(--heading)' }}>Danger zone</Title>

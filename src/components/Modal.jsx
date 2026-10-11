@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useId } from 'react'
 import { createPortal } from 'react-dom'
 import { XIcon } from './Icons'
 
-export function Modal({ title, onClose, children, style, closeOnBackdrop = true }) {
+export function Modal({ title, onClose, children, style, className = '', closeOnBackdrop = true }) {
   const [highlight, setHighlight] = useState(false)
   const titleId = useId()
   const timerRef = useRef(null)
@@ -32,7 +32,7 @@ export function Modal({ title, onClose, children, style, closeOnBackdrop = true 
 
   return createPortal(
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={handleBackdropClick}>
-      <div className="modal" style={style} role="document">
+      <div className={`modal ${className}`} style={style} role="document">
         <div className="modal-header">
           <h2 id={titleId}>{title}</h2>
           <button className={`modal-close ${highlight ? 'modal-close--highlight' : ''}`} onClick={onClose} aria-label="Close">

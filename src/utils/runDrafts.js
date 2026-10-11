@@ -1,4 +1,12 @@
-import { api } from '../api/client'
+import { api } from '../api/client.js'
+
+const pendingWrites = new Map()
+function orderedWrite(projectId, operation) {
+  const write = (pendingWrites.get(projectId) || Promise.resolve()).catch(() => {}).then(operation)
+  pendingWrites.set(projectId, write)
+  write.finally(() => { if (pendingWrites.get(projectId) === write) pendingWrites.delete(projectId) }).catch(() => {})
+  return write
+}
 
 /** Returns the persisted draft for the given project, or null if none exists. */
 export async function getRunDraft(projectId) {
@@ -14,14 +22,15 @@ export async function getRunDraft(projectId) {
 export async function saveRunDraft(projectId, draft) {
   if (!projectId) return
   try {
-    await api.put(`/projects/${projectId}/run-draft`, draft)
+    await orderedWrite(projectId, () => api.put(`/projects/${projectId}/run-draft`, draft))
+    return true
   } catch {
-    // network hiccup during autosave — silently skip, next autosave will retry
+    return false
   }
 }
 
 /** Removes the draft after a run is finished or explicitly discarded. */
 export async function clearRunDraft(projectId) {
   if (!projectId) return
-  await api.delete(`/projects/${projectId}/run-draft`)
+  await orderedWrite(projectId, () => api.delete(`/projects/${projectId}/run-draft`))
 }
