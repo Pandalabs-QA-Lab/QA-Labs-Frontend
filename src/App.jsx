@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { MantineProvider, createTheme } from '@mantine/core'
-import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { HashRouter, Navigate, Route, Routes, useParams } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Layout } from './components/Layout'
 import { WorkspaceGate } from './components/WorkspaceGate'
@@ -16,6 +16,8 @@ import { ProjectReportsPage } from './pages/ProjectReportsPage'
 import { ProjectsPage } from './pages/ProjectsPage'
 import { ReportsPage } from './pages/ReportsPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { ProjectResourcesPage } from './pages/ProjectResourcesPage'
+import { AutomationPage } from './pages/AutomationPage'
 import { TestCaseDetailPage } from './pages/TestCaseDetailPage'
 import { TestCasesPage } from './pages/TestCasesPage'
 import { RequirementsPage } from './pages/RequirementsPage'
@@ -32,6 +34,7 @@ import { WorkspaceWelcomePage } from './pages/WorkspaceWelcomePage'
 import { AdminPage } from './pages/AdminPage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
 import './App.css'
+import './project-hub.css'
 
 const mantineTheme = createTheme({
   primaryColor: 'accent',
@@ -75,6 +78,8 @@ const appRoutes = (
     <Route path="/projects/:projectId/bugs" element={<BugTrackerPage />} />
     <Route path="/projects/:projectId/reports" element={<ProjectReportsPage />} />
     <Route path="/projects/:projectId/settings" element={<SettingsPage />} />
+    <Route path="/projects/:projectId/resources" element={<ProjectToolsRoute Page={ProjectResourcesPage} />} />
+    <Route path="/projects/:projectId/automation" element={<ProjectToolsRoute Page={AutomationPage} />} />
     <Route path="/workspace/settings" element={<WorkspaceSettingsPage />} />
     <Route path="/workspaces" element={<WorkspaceWelcomePage />} />
     <Route path="/admin" element={<AdminPage />} />
@@ -82,6 +87,11 @@ const appRoutes = (
     <Route path="*" element={<Navigate to="/dashboard" replace />} />
   </Routes>
 )
+
+function ProjectToolsRoute({ Page }) {
+  const { projectId } = useParams()
+  return <Page key={projectId} />
+}
 
 function LeadOnly({ children }) {
   const { role } = useAuth()

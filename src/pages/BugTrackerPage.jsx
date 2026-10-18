@@ -24,6 +24,7 @@ import { DownloadIcon, UploadIcon } from '../components/Icons'
 import { useUserRole } from '../hooks/useUserRole'
 import { useProjects } from '../hooks/useProjects'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
+import { matchesReportBug } from '../utils/reportDrilldown'
 import { bugMatchesSearch } from '../utils/entitySearch'
 import { getProjectMembers } from '../utils/projectMembers'
 import { getJiraSettings } from '../utils/storage'
@@ -511,9 +512,7 @@ export function BugTrackerPage() {
 
   const visible = sortedBugs.filter((b) => {
     if (!bugMatchesSearch(b, search)) return false
-    if (fSeverity && b.severity !== fSeverity) return false
-    if (fStatus && b.status !== fStatus) return false
-    if (fModule && b.module !== fModule) return false
+    if (!matchesReportBug(b, { severity: fSeverity, status: fStatus, module: fModule })) return false
     if (fAssignee && b.assignedTo !== fAssignee) return false
     if (fTag && !(b.tags || []).includes(fTag)) return false
     return true
@@ -567,10 +566,12 @@ export function BugTrackerPage() {
           />
           <select aria-label="Severity filter" value={fSeverity} onChange={updateListControl(setFSeverity)} className={fSeverity ? 'filter-active' : ''}>
             <option value="">Severity</option>
+            <option value="Non-critical">Non-critical</option>
             {SEVERITIES.map((s) => <option key={s}>{s}</option>)}
           </select>
           <select aria-label="Status filter" value={fStatus} onChange={updateListControl(setFStatus)} className={fStatus ? 'filter-active' : ''}>
             <option value="">Status</option>
+            <option value="Unresolved">Unresolved (Open + In review)</option>
             {STATUSES.map((s) => <option key={s}>{s}</option>)}
           </select>
           {bugModules.length > 0 && (

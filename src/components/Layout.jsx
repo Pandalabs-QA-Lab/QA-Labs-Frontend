@@ -32,13 +32,14 @@ const projectNavGroups = [
   ] },
   { label: 'Execute', items: [
     { label: 'Test runs', path: 'test-runs', icon: 'runs' },
+    { label: 'Automation', path: 'automation', icon: 'runs' },
     { label: 'Bug tracker', path: 'bugs', icon: 'bug' },
   ] },
   { label: 'Review', items: [
     { label: 'Coverage Matrix', path: 'coverage-matrix', icon: 'matrix' },
     { label: 'Reports', path: 'reports', icon: 'reports' },
   ] },
-  { label: 'Manage', items: [{ label: 'Settings', path: 'settings', icon: 'settings' }] },
+  { label: 'Manage', items: [{ label: 'Resources', path: 'resources', icon: 'projects' }, { label: 'Settings', path: 'settings', icon: 'settings' }] },
 ]
 
 function Icon({ name }) {
@@ -484,7 +485,7 @@ export function Layout({ children }) {
       <div className="workspace">
         {projectId && <ProjectSidebar projectId={projectId} />}
         <main className="content">
-          {projectId && <ProjectOverview projectId={projectId} />}
+          {projectId && !/\/(automation|resources)$/.test(pathname) && <ProjectOverview projectId={projectId} />}
           {children}
         </main>
       </div>

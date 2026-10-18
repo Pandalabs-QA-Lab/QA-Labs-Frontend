@@ -45,6 +45,7 @@ export function ProjectReportsPage() {
     needClarification: needClarif,
     total,
     coverage,
+    executed,
     passRate,
     critical,
     major,
@@ -77,7 +78,7 @@ export function ProjectReportsPage() {
   })
 
   // Run history — newest first
-  const sortedRuns = [...runs].reverse()
+  const sortedRuns = [...runs].sort((a, b) => (Date.parse(b.completedAt || b.date) || 0) - (Date.parse(a.completedAt || a.date) || 0))
   // Trend uses oldest→newest order (left→right)
   const trendRuns = sortedRuns.slice(0, 8).reverse()
 
@@ -92,11 +93,11 @@ export function ProjectReportsPage() {
   const insights = []
   if (total > 0) {
     if (blocker > 0) insights.push({ type: 'danger',  title: 'Active Blockers', text: `${blocker} blocker case${blocker !== 1 ? 's' : ''} preventing complete verification. Resolve immediately.`, to: `/projects/${projectId}/test-cases?status=Blocker` })
-    if (critical > 0) insights.push({ type: 'danger', title: 'Critical Defects', text: `${critical} unresolved Critical severity bug${critical !== 1 ? 's' : ''} require immediate engineering attention.`, to: `/projects/${projectId}/bugs?severity=Critical` })
+    if (critical > 0) insights.push({ type: 'danger', title: 'Critical Defects', text: `${critical} unresolved Critical severity bug${critical !== 1 ? 's' : ''} require immediate engineering attention.`, to: `/projects/${projectId}/bugs?status=Unresolved&severity=Critical` })
     if (passRate < 70) insights.push({ type: 'warning', title: 'Low Pass Rate', text: `Pass rate ${passRate}% is below the 70% quality threshold. ${failed} failing case${failed !== 1 ? 's' : ''} need attention.`, to: failed > 0 ? `/projects/${projectId}/test-cases?status=Fail` : `/projects/${projectId}/test-runs` })
-    if (major > 0) insights.push({ type: 'info', title: 'Major Bugs Open', text: `${major} open Major severity bug${major !== 1 ? 's' : ''} - add to the next sprint backlog.`, to: `/projects/${projectId}/bugs?severity=Major` })
-    if (coverage < 80 && pending > 0) insights.push({ type: 'info', title: 'Low Coverage', text: `${pending} case${pending !== 1 ? 's' : ''} still not executed (${100 - coverage}% untested). Run a test cycle to improve coverage.`, to: `/projects/${projectId}/test-cases?status=${enc('Not Executed')}` })
-    if (insights.length === 0) insights.push({ type: 'success', title: 'All Systems Nominal', text: 'Blocker-free, healthy pass rate, no critical defects. Ship with confidence.' })
+    if (major > 0) insights.push({ type: 'info', title: 'Major Bugs Open', text: `${major} open Major severity bug${major !== 1 ? 's' : ''} - add to the next sprint backlog.`, to: `/projects/${projectId}/bugs?status=Unresolved&severity=Major` })
+    if (executed < total) insights.push({ type: 'info', title: 'Unfinished execution', text: `${total - executed} cases still need a result. Complete the remaining test execution.`, to: `/projects/${projectId}/test-cases` })
+    if (insights.length === 0) insights.push({ type: 'info', title: 'Review release readiness', text: 'Check skipped cases, unresolved bugs and the age of the latest completed run before release.' })
   }
 
   return (
@@ -140,12 +141,12 @@ export function ProjectReportsPage() {
           <span>Blockers</span>
           <strong>{blocker}</strong>
         </Link>
-        <Link to={`/projects/${projectId}/bugs?status=Open`} className="rpt-kpi rpt-kpi--bug rpt-kpi-link">
+        <Link to={`/projects/${projectId}/bugs?status=Unresolved`} className="rpt-kpi rpt-kpi--bug rpt-kpi-link">
           <span>Open bugs</span>
           <strong>{openBugs}</strong>
         </Link>
-        <Link to={`/projects/${projectId}/test-cases?status=${enc('Not Executed')}`} className="rpt-kpi rpt-kpi--coverage rpt-kpi-link">
-          <span>Coverage</span>
+        <Link to={`/projects/${projectId}/test-cases`} className="rpt-kpi rpt-kpi--coverage rpt-kpi-link">
+          <span>Execution progress</span>
           <strong>{coverage}%</strong>
         </Link>
         <Link to={`/projects/${projectId}/test-runs`} className="rpt-kpi rpt-kpi--runs rpt-kpi-link">
@@ -201,9 +202,9 @@ export function ProjectReportsPage() {
         <article className="panel chart-panel chart-panel--tall">
           <div className="section-header"><h2>Bugs by severity</h2></div>
           <div className="chart-bars chart-bars--solo">
-            <Link to={`/projects/${projectId}/bugs?severity=Critical`} className="chart-link-row"><Bar label="Critical" value={critical} total={activeBugs.length} tone="failed" /></Link>
-            <Link to={`/projects/${projectId}/bugs?severity=Major`} className="chart-link-row"><Bar label="Major" value={major} total={activeBugs.length} tone="pending" /></Link>
-            <Link to={`/projects/${projectId}/bugs?severity=Minor`} className="chart-link-row"><Bar label="Minor" value={minor} total={activeBugs.length} tone="passed" /></Link>
+            <Link to={`/projects/${projectId}/bugs?status=Unresolved&severity=Critical`} className="chart-link-row"><Bar label="Critical" value={critical} total={activeBugs.length} tone="failed" /></Link>
+            <Link to={`/projects/${projectId}/bugs?status=Unresolved&severity=Major`} className="chart-link-row"><Bar label="Major" value={major} total={activeBugs.length} tone="pending" /></Link>
+            <Link to={`/projects/${projectId}/bugs?status=Unresolved&severity=Minor`} className="chart-link-row"><Bar label="Minor" value={minor} total={activeBugs.length} tone="passed" /></Link>
           </div>
           <div className="bug-status-summary">
             {[['Open', 'failed'], ['In review', 'pending'], ['Closed', 'passed']].map(([s, tone]) => (
@@ -363,7 +364,7 @@ export function ProjectReportsPage() {
                       <td><Link className="text-link" to={`/projects/${projectId}/test-cases?module=${enc(m.module)}`}>{m.total}</Link></td>
                       <td><Link className="text-link metric-passed" to={`/projects/${projectId}/test-cases?module=${enc(m.module)}&status=Pass`}>{m.passed}</Link></td>
                       <td><Link className={`text-link ${problems > 0 ? 'metric-failed' : ''}`} to={`/projects/${projectId}/test-cases?module=${enc(m.module)}&status=${m.blocker > 0 ? 'Blocker' : 'Fail'}`}>{problems || '—'}</Link></td>
-                      <td><Link className={`text-link ${m.openBugs > 0 ? 'metric-failed' : ''}`} to={`/projects/${projectId}/bugs?module=${enc(m.module)}&status=Open`}>{m.openBugs || '—'}</Link></td>
+                      <td><Link className={`text-link ${m.openBugs > 0 ? 'metric-failed' : ''}`} to={`/projects/${projectId}/bugs?module=${enc(m.module)}&status=Unresolved`}>{m.openBugs || '—'}</Link></td>
                       <td>
                         <div className="progress-cell">
                           <span>{m.passRate}%</span>

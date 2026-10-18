@@ -50,3 +50,13 @@
   .report-attention .rr-attention-item { grid-template-columns: 1fr; }
   .report-attention-projects { display: none; }
 }
+
+.rr-risk-project { display: block; font-size: 11px; color: var(--text-muted); font-weight: 400; }
+.rr-metric-note { font-size: 12px; line-height: 1.6; color: var(--text-muted); margin-top: 20px; }
+.report-drilldown { padding: 20px; }
+.report-drilldown p { color: var(--text-muted); font-size: 13px; }
+.report-drilldown ul { list-style: none; padding: 0; }
+.report-drilldown li a { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.report-drilldown li a span { overflow-wrap: anywhere; }
+.report-drilldown li a strong { flex-shrink: 0; font-size: 12px; }
+@media (max-width: 640px) { .report-drilldown li a { flex-wrap: wrap; gap: 4px; } }

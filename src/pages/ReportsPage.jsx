@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { PageHeader } from '../components/PageHeader'
+import { Modal } from '../components/Modal'
+import { getReportDrilldown } from '../utils/reportDrilldown'
 import { StatusPill } from '../components/StatusPill'
 import { useProjects } from '../hooks/useProjects'
 import { useWorkspaceData } from '../hooks/useWorkspaceData'
@@ -30,6 +32,7 @@ const enc = (value) => encodeURIComponent(value)
 
 export function ReportsPage() {
   const { projects, loading: projectsLoading, error: projectsError, refresh } = useProjects()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [nowTs] = useState(() => Date.now())
   // Warm the cache for every project so global readiness numbers are correct
   // without first opening each project; re-renders as data lands.
@@ -43,20 +46,13 @@ export function ReportsPage() {
     overallReadiness
   } = getGlobalReportMetrics({ projects, getTestCases, getBugs, getTestRuns })
 
-  const executed = totals.total - totals.pending
+  const executed = totals.executed
   const readyCount = rows.filter((r) => r.readiness.label === 'Ready').length
   const staleCount = rows.filter((r) => r.total > 0 && r.noRecentRun).length
-  const firstProjectWith = (predicate) => rows.find(predicate)?.id
-  const firstOpenBugProject = firstProjectWith((r) => r.openBugs > 0)
-  const firstBlockerProject = firstProjectWith((r) => r.blocker > 0)
-  const firstFailedProject = firstProjectWith((r) => r.failed > 0)
-  const firstPendingProject = firstProjectWith((r) => r.pending > 0)
-  const firstPassedProject = firstProjectWith((r) => r.passed > 0)
-
-  const bugSeverityLink = (severity) => {
-    const id = firstProjectWith((r) => (severity === 'Critical' ? r.critical : severity === 'Major' ? r.major : r.minor) > 0)
-    return id ? `/projects/${id}/bugs?severity=${enc(severity)}` : null
-  }
+  const metricLink = (metric) => '/reports?metric=' + enc(metric)
+  const bugSeverityLink = (severity) => metricLink(severity.toLowerCase())
+  const drilldown = getReportDrilldown({ metric: searchParams.get('metric'), rows, getTestCases, getBugs,
+    projectId: searchParams.get('project'), module: searchParams.get('module') })
 
   // Build moduleRisk
   const moduleRisk = {}
@@ -77,8 +73,10 @@ export function ReportsPage() {
     })
 
     modules.forEach((mod) => {
-      if (!moduleRisk[mod]) {
-        moduleRisk[mod] = {
+      const riskKey = JSON.stringify([p.id, mod])
+      if (!moduleRisk[riskKey]) {
+        moduleRisk[riskKey] = {
+          projectName: p.name,
           module: mod,
           projectId: p.id,
           score: 0,
@@ -92,7 +90,7 @@ export function ReportsPage() {
         }
       }
 
-      const modInfo = moduleRisk[mod]
+      const modInfo = moduleRisk[riskKey]
       if (!modInfo.projectId) modInfo.projectId = p.id
 
       // Evaluate failing cases in this module
@@ -188,17 +186,17 @@ export function ReportsPage() {
   const signals = [
     {
       key: 'coverage',
-      label: 'Test coverage',
+      label: 'Execution progress',
       value: `${coverage}%`,
       tone: coverage >= 90 ? 'passed' : coverage >= 60 ? 'pending' : 'failed',
-      sub: `${executed} of ${totals.total} executed · ${totals.pending} not run`,
+      sub: `${executed} of ${totals.total} with results · ${totals.total - executed} unfinished`,
     },
     {
       key: 'defects',
       label: 'Open defects',
       value: totals.openBugs,
       tone: totals.critical > 0 ? 'failed' : totals.openBugs > 0 ? 'pending' : 'passed',
-      to: firstOpenBugProject ? `/projects/${firstOpenBugProject}/bugs?status=Open` : null,
+      to: totals.openBugs ? metricLink('openBugs') : null,
       severities: [
         { label: 'Critical', value: totals.critical, tone: 'critical', to: bugSeverityLink('Critical') },
         { label: 'Major', value: totals.major, tone: 'major', to: bugSeverityLink('Major') },
@@ -233,11 +231,11 @@ export function ReportsPage() {
     addAttention('failed', totals.blocker, 'Release blockers', 'Review cases', (r) => r.blocker, 'test-cases?status=Blocker')
   }
   if (totals.critical > 0) {
-    addAttention('failed', totals.critical, 'Critical bugs open', 'Review bugs', (r) => r.critical, 'bugs?severity=Critical')
+    addAttention('failed', totals.critical, 'Critical bugs open', 'Review bugs', (r) => r.critical, 'bugs?severity=Critical&status=Unresolved')
   }
   if (totals.openBugs - totals.critical > 0) {
     const rest = totals.openBugs - totals.critical
-    addAttention('pending', rest, 'Other bugs awaiting triage', 'Triage bugs', (r) => r.openBugs - r.critical, 'bugs')
+    addAttention('pending', rest, 'Other bugs awaiting triage', 'Triage bugs', (r) => r.openBugs - r.critical, 'bugs?severity=Non-critical&status=Unresolved')
   }
   if (totals.failed > 0) {
     addAttention('pending', totals.failed, 'Failing test cases', 'Review failures', (r) => r.failed, 'test-cases?status=Fail')
@@ -257,11 +255,15 @@ export function ReportsPage() {
 
   // ── Status distribution for the minimal bar ───────────────────────────
   const statusBreakdown = [
-    { label: 'Pass', value: totals.passed, tone: 'passed', to: firstPassedProject ? `/projects/${firstPassedProject}/test-cases?status=Pass` : null },
-    { label: 'Fail', value: totals.failed, tone: 'failed', to: firstFailedProject ? `/projects/${firstFailedProject}/test-cases?status=Fail` : null },
-    { label: 'Blocker', value: totals.blocker, tone: 'blocker', to: firstBlockerProject ? `/projects/${firstBlockerProject}/test-cases?status=Blocker` : null },
-    { label: 'Skipped', value: totals.skipped, tone: 'skipped', to: null },
-    { label: 'Pending', value: totals.pending, tone: 'pending', to: firstPendingProject ? `/projects/${firstPendingProject}/test-cases?status=${enc('Not Executed')}` : null },
+    { label: 'Pass', value: totals.passed, tone: 'passed', to: metricLink('passed') },
+    { label: 'Fail', value: totals.failed, tone: 'failed', to: metricLink('failed') },
+    { label: 'Blocker', value: totals.blocker, tone: 'blocker', to: metricLink('blocker') },
+    { label: 'Skipped', value: totals.skipped, tone: 'skipped', to: metricLink('skipped') },
+    { label: 'Not run', value: totals.pending, tone: 'pending', to: metricLink('pending') },
+    { label: 'Reported', value: totals.reported, tone: 'pending', to: metricLink('reported') },
+    { label: 'In progress', value: totals.inProgress, tone: 'pending', to: metricLink('inProgress') },
+    { label: 'On hold', value: totals.hold, tone: 'pending', to: metricLink('hold') },
+    { label: 'Needs clarification', value: totals.needClarification, tone: 'pending', to: metricLink('needClarification') },
   ].filter((s) => s.value > 0)
 
   // Empty state
@@ -313,19 +315,19 @@ export function ReportsPage() {
           <span className={`rr-readiness-label status-text--${overallReadiness.tone}`}>{overallReadiness.label}</span>
         </div>
         <div className="rr-banner-stats">
-          <Link to={firstPassedProject ? `/projects/${firstPassedProject}/test-cases?status=Pass` : '/projects'} className="rr-stat rr-stat-link">
+          <Link to={metricLink('passed')} className="rr-stat rr-stat-link">
             <span className="rr-stat-val" style={{ color: '#1a6b37' }}>{passRate}%</span>
             <span className="rr-stat-label">Pass rate</span>
           </Link>
-          <Link to={firstFailedProject ? `/projects/${firstFailedProject}/test-cases?status=Fail` : '/projects'} className="rr-stat rr-stat-link">
+          <Link to={metricLink('failed')} className="rr-stat rr-stat-link">
             <span className="rr-stat-val" style={{ color: totals.failed > 0 ? '#a93030' : undefined }}>{totals.failed}</span>
             <span className="rr-stat-label">Failed</span>
           </Link>
-          <Link to={firstOpenBugProject ? `/projects/${firstOpenBugProject}/bugs?status=Open` : '/projects'} className="rr-stat rr-stat-link">
+          <Link to={metricLink('openBugs')} className="rr-stat rr-stat-link">
             <span className="rr-stat-val">{totals.openBugs}</span>
             <span className="rr-stat-label">Open bugs</span>
           </Link>
-          <Link to={firstBlockerProject ? `/projects/${firstBlockerProject}/test-cases?status=Blocker` : '/projects'} className="rr-stat rr-stat-link">
+          <Link to={metricLink('blocker')} className="rr-stat rr-stat-link">
             <span className="rr-stat-val" style={{ color: totals.blocker > 0 ? '#7f1d1d' : undefined }}>{totals.blocker}</span>
             <span className="rr-stat-label">Blockers</span>
           </Link>
@@ -425,19 +427,16 @@ export function ReportsPage() {
         <section className="rr-section">
           <div className="rr-section-head">
             <h2 className="rr-section-title">Top risk areas</h2>
-            <span className="rr-section-note">Modules with failing or blocked cases</span>
+            <span className="rr-section-note">Modules with failing tests or unresolved bugs</span>
           </div>
           <div className="rr-risk-list">
             {riskAreas.map((m) => (
               <Link
-                key={m.module}
-                to={m.criticalBugs + m.majorBugs + m.minorBugs > 0
-                  ? `/projects/${m.projectId}/bugs?module=${enc(m.module)}`
-                  : `/projects/${m.projectId}/test-cases?module=${enc(m.module)}`
-                }
+                key={JSON.stringify([m.projectId, m.module])}
+                to={`/reports?metric=risk&project=${enc(m.projectId)}&module=${enc(m.module)}`}
                 className="rr-risk-row rr-clickable-row"
               >
-                <span className="rr-risk-name">{m.module}</span>
+                <span className="rr-risk-name">{m.module}<small className="rr-risk-project">{m.projectName}</small></span>
                 <div className="rr-risk-bar" aria-hidden="true">
                   <span
                     className={`rr-risk-fill rr-risk-fill--${m.tone}`}
@@ -480,7 +479,7 @@ export function ReportsPage() {
               </div>
 
               <div className="rr-rate-cell">
-                <span className={`rr-rate-value status-text--${r.readiness.tone}`}>{r.passRate}%</span>
+                <span className={`rr-rate-value status-text--${r.readiness.tone}`}>{r.total ? `${r.passRate}%` : '—'}</span>
                 <div className="rr-mini-bar" aria-hidden="true">
                   <span className={`rr-mini-fill rr-mini-fill--${r.readiness.tone}`} style={{ width: `${r.passRate}%` }} />
                 </div>
@@ -488,14 +487,14 @@ export function ReportsPage() {
               </div>
 
               <div className="rr-row-metric">
-                <strong>{r.passed}</strong>
+                <strong>{r.executed}</strong>
                 <span>of {r.total} cases</span>
               </div>
 
               <div className="rr-issue-stack">
                 <Link to={`/projects/${r.id}/test-cases?status=Fail`} className={r.failed > 0 ? 'metric-failed' : ''}><strong>{r.failed}</strong> Failed</Link>
                 <Link to={`/projects/${r.id}/test-cases?status=Blocker`} className={r.blocker > 0 ? 'metric-failed' : ''}><strong>{r.blocker}</strong> Blockers</Link>
-                <Link to={`/projects/${r.id}/bugs?status=Open`} className={r.openBugs > 0 ? 'metric-failed' : ''}><strong>{r.openBugs}</strong> Open Bugs</Link>
+                <Link to={`/projects/${r.id}/bugs?status=Unresolved`} className={r.openBugs > 0 ? 'metric-failed' : ''}><strong>{r.openBugs}</strong> Open Bugs</Link>
               </div>
 
               <div className="rr-run-cell">
@@ -519,6 +518,17 @@ export function ReportsPage() {
           ))}
         </div>
       </section>
+      <p className="rr-metric-note">Pass rate = passed cases ÷ all cases. Execution progress counts Pass, Fail, Blocker and Skipped results. Unresolved bugs include Open and In review. Ready requires every case passed, no unresolved bugs, and a completed run within 14 days.</p>
+      {drilldown && (
+        <Modal title={drilldown.title} onClose={() => setSearchParams({})}>
+          <div className="report-drilldown">
+            <p>{drilldown.description}</p>
+            {drilldown.entries.length ? <ul>{drilldown.entries.map((entry) => (
+              <li key={entry.to}><Link to={entry.to}><span>{entry.name}</span><strong>{entry.count} {entry.unit}</strong></Link></li>
+            ))}</ul> : <p>No matching records.</p>}
+          </div>
+        </Modal>
+      )}
     </>
   )
 }

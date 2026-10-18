@@ -1441,6 +1441,7 @@ export function TestRunsPage() {
                         <Link to={`/projects/${projectId}/test-runs/${run.id}`} className="text-link">
                           {run.name || 'Test run'}
                         </Link>
+                        {run.source === 'AUTOMATED' && <span className="resource-category">Automated · {run.automationMeta?.branch || 'CI'}</span>}
                         {run.testPlanId && (
                           <span className="text-muted" style={{ fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                             <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: 'var(--primary-color, #2563eb)' }}></span>

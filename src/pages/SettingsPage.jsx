@@ -33,6 +33,7 @@ import { useTestRuns } from '../hooks/useTestRuns'
 import { getJiraSettings, saveJiraSettings } from '../utils/storage'
 import { DataLoadState } from '../components/DataLoadState'
 import { BrowserExtensionSettings } from '../components/BrowserExtensionSettings'
+import { AutomationSettings } from '../components/AutomationSettings'
 
 export function SettingsPage() {
   const { projectId } = useParams()
@@ -400,6 +401,7 @@ export function SettingsPage() {
 
       {/* ─── Danger Zone ─── */}
       <BrowserExtensionSettings />
+      {isLead && <AutomationSettings key={projectId} projectId={projectId} />}
       {isLead && (
         <Card shadow="sm" padding="lg" radius="md" withBorder mb="md" style={{ borderColor: 'var(--danger)' }} bg="var(--surface)">
           <Title order={4} c="red" mb="sm" style={{ fontFamily: 'var(--heading)' }}>Danger zone</Title>

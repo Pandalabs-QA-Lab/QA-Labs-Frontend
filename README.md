@@ -27,6 +27,14 @@ QA Leads can invite a person by email from project settings or workspace setting
 
 Platform admins can create accounts with temporary passwords and optionally place them in a workspace as Viewers. The new user must set a private password at first sign-in. Admins can remove access from one workspace or delete an ordinary account across all workspaces; workspace owners and platform admins are protected from account deletion.
 
+## Project resources and automation
+
+**Resources** stores tracker sheets, project links, notes, environments and encrypted test-account passwords. QA Leads manage entries; Testers and QA Leads may reveal passwords, with audit records and automatic hiding after 30 seconds. Backend `PROJECT_SECRETS_KEY` configuration is required for passwords and GitHub workflow credentials. Keep production secrets in a dedicated password manager.
+
+**Settings → GitHub Actions** configures a repository, approved test workflow, branches and environments. CI uses a project-scoped upload token to send JUnit results after PR checks or deployment tests. **Automation** shows dedicated trends, suite failures, branch/environment filters and links to automated runs in Test runs. Testers and QA Leads can request approved workflows when GitHub credentials are configured. CI executes on the customer's runners. See the backend's `automation/README.md`, JUnit uploader and example workflow for setup and limits. Hosted runners cannot reach a localhost backend. No integration is activated automatically.
+
+Deploy the backend Resources/Automation migration and API before the frontend. Project JSON exports exclude Resources, encrypted passwords and integration credentials; recover those using a secured database backup and its separately backed-up encryption key.
+
 ## Project folders
 
 Requirements and test cases use one shared folder tree per project. QA Leads can create nested folders, rename or move them, and assign items from either module. Selecting a parent folder includes items in its subfolders. Removing a folder keeps its contents by moving them to the parent (or to Unfiled at the project root). Folders do not currently organize plans, runs, or bugs.

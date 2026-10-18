@@ -416,8 +416,8 @@ export function TestCasesPage() {
     if (fFolder === 'unfiled' ? !!tc.folderId : selectedFolderIds && !selectedFolderIds.has(tc.folderId)) return false
     if (search && !tc.title.toLowerCase().includes(search.toLowerCase())) return false
     if (fPriority && tc.priority !== fPriority) return false
-    if (fStatus && tc.status !== fStatus) return false
-    if (fModule && tc.module !== fModule) return false
+    if (fStatus && normalizeTestStatus(tc.status) !== fStatus) return false
+    if (fModule && (tc.module || 'Unassigned') !== fModule) return false
     if (fAssignee && tc.assignee !== fAssignee) return false
     if (fTag && !(tc.tags || []).includes(fTag)) return false
     return true

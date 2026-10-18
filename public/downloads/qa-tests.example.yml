@@ -1,0 +1,41 @@
+name: Automated tests
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Test environment
+        required: true
+        default: staging
+        type: choice
+        options: [staging]
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      # Replace this with YOUR runner's command configured to write JUnit XML.
+      # For example, Playwright: npx playwright test --reporter=junit
+      # Set PLAYWRIGHT_JUNIT_OUTPUT_FILE=test-results/junit.xml in that case.
+      - name: Run your tests
+        run: npm test
+      - name: Send JUnit results to QA Lab
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          QA_LAB_API_URL: ${{ vars.QA_LAB_API_URL }}
+          QA_LAB_TOKEN: ${{ secrets.QA_LAB_TOKEN }}
+          QA_LAB_ENVIRONMENT: ${{ inputs.environment || 'staging' }}
+          QA_LAB_PR_NUMBER: ${{ github.event.pull_request.number }}
+          QA_LAB_JUNIT_GLOB: test-results/**/*.xml
+        run: python automation/upload_junit.py

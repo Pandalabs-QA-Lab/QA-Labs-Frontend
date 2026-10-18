@@ -63,7 +63,8 @@ export function getTestCaseStatusCounts(testCases) {
   })
 
   const total = list.length
-  const executed = total - pending
+  // Only terminal results count as completed execution.
+  const executed = passed + failed + blocker + skipped
   const passRate = total ? Math.round((passed / total) * 100) : 0
   const coverage = total ? Math.round((executed / total) * 100) : 0
 
@@ -111,10 +112,10 @@ export function nextAction(r) {
   return 'Maintain coverage'
 }
 
-export function deriveReadiness({ total, passRate, blocker, failed, openBugs }) {
+export function deriveReadiness({ total, passRate, blocker, failed, openBugs, passed = 0, noRecentRun = true }) {
   if (total === 0) return { label: 'No data', tone: 'neutral' }
   if (blocker > 0 || passRate < 50) return { label: 'Not ready', tone: 'failed' }
-  if (failed > 0 || openBugs > 0 || passRate < 70) return { label: 'Needs review', tone: 'pending' }
+  if (failed > 0 || openBugs > 0 || passed !== total || noRecentRun) return { label: 'Needs review', tone: 'pending' }
   return { label: 'Ready', tone: 'passed' }
 }
 
@@ -125,17 +126,20 @@ export function projectAction(r) {
   if (r.openBugs > 0) return { text: 'Triage bugs', to: `/projects/${r.id}/bugs` }
   if (r.pending > 0) return { text: 'Continue execution', to: `/projects/${r.id}/test-runs` }
   if (r.totalRuns === 0) return { text: 'Start a run', to: `/projects/${r.id}/test-runs` }
+  if (r.noRecentRun) return { text: 'Schedule a fresh run', to: `/projects/${r.id}/test-runs` }
   return { text: 'View report', to: `/projects/${r.id}/reports` }
 }
 
 export function getProjectReportMetrics({ project, testCases, bugs, runs }) {
   const statusCounts = getTestCaseStatusCounts(testCases)
   const bugCounts = getBugSeverityCounts(bugs)
-  const latestRun = getLatestRun(runs, project.id)
+  const completedRuns = (runs || []).filter((r) => r.completedAt || ['completed', 'complete'].includes(String(r.status || '').toLowerCase()))
+  const latestRun = getLatestRun(completedRuns, project.id)
 
   const latestRunDate = latestRun ? (latestRun.completedAt || latestRun.date) : null
-  const noRecentRun = !latestRunDate ||
-    (Date.now() - new Date(latestRunDate)) / 86400000 > 14
+  const runTime = Date.parse(latestRunDate)
+  const noRecentRun = !Number.isFinite(runTime) || runTime > Date.now() ||
+    (Date.now() - runTime) / 86400000 > 14
 
   const totalRuns = (runs || []).filter((r) => !r.projectId || r.projectId === project.id).length
 
@@ -178,7 +182,9 @@ export function getGlobalReportMetrics({ projects, getTestCases, getBugs, getTes
       passRate: metrics.passRate,
       blocker: metrics.blocker,
       failed: metrics.failed,
-      openBugs: metrics.openBugs
+      openBugs: metrics.openBugs,
+      passed: metrics.passed,
+      noRecentRun: metrics.noRecentRun
     })
     metrics.action = projectAction(metrics)
     return metrics
@@ -187,6 +193,7 @@ export function getGlobalReportMetrics({ projects, getTestCases, getBugs, getTes
   const totals = rows.reduce(
     (acc, r) => ({
       total: acc.total + r.total,
+      executed: acc.executed + r.executed,
       passed: acc.passed + r.passed,
       failed: acc.failed + r.failed,
       blocker: acc.blocker + r.blocker,
@@ -202,11 +209,11 @@ export function getGlobalReportMetrics({ projects, getTestCases, getBugs, getTes
       minor: acc.minor + r.minor,
       totalRuns: acc.totalRuns + r.totalRuns,
     }),
-    { total: 0, passed: 0, failed: 0, blocker: 0, skipped: 0, pending: 0, reported: 0, inProgress: 0, hold: 0, needClarification: 0, openBugs: 0, critical: 0, major: 0, minor: 0, totalRuns: 0 }
+    { total: 0, executed: 0, passed: 0, failed: 0, blocker: 0, skipped: 0, pending: 0, reported: 0, inProgress: 0, hold: 0, needClarification: 0, openBugs: 0, critical: 0, major: 0, minor: 0, totalRuns: 0 }
   )
 
   const globalPassRate = totals.total ? Math.round((totals.passed / totals.total) * 100) : 0
-  const globalCoverage = totals.total ? Math.round(((totals.total - totals.pending) / totals.total) * 100) : 0
+  const globalCoverage = totals.total ? Math.round((totals.executed / totals.total) * 100) : 0
   const globalHealth = deriveHealth({
     total: totals.total,
     passRate: globalPassRate,
@@ -218,7 +225,9 @@ export function getGlobalReportMetrics({ projects, getTestCases, getBugs, getTes
     passRate: globalPassRate,
     blocker: totals.blocker,
     failed: totals.failed,
-    openBugs: totals.openBugs
+    openBugs: totals.openBugs,
+    passed: totals.passed,
+    noRecentRun: rows.some((r) => r.total === 0 || r.noRecentRun)
   })
 
   const attentionItems = []
